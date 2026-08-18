@@ -8,7 +8,8 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 async function getCredential(userId, pluginId) {
-  const { data, error } = await supabaseAdmin.from("user_plugins").select("*").eq("user_id", userId).eq("plugin_id", pluginId).single();
+  const lookupIds = pluginId === "gcal" ? ["gcal", "google_calendar"] : [pluginId];
+  const { data, error } = await supabaseAdmin.from("user_plugins").select("*").eq("user_id", userId).in("plugin_id", lookupIds).eq("status", "active").limit(1).maybeSingle();
   if (error || !data || data.status !== "active") return null;
   if (data.expires_at && new Date(data.expires_at) < new Date(Date.now() + 5 * 60 * 1000)) {
     const refreshed = await refreshGoogleToken(data); if (refreshed) return refreshed;
@@ -80,7 +81,7 @@ async function last30daysAction(action, params = {}) {
   return { topic, output: stdout.trim() };
 }
 
-const HANDLERS = { gmail: gmailAction, google_calendar: calendarAction, slack: slackAction, github: githubAction, notion: notionAction };
+const HANDLERS = { gmail: gmailAction, gcal: calendarAction, google_calendar: calendarAction, slack: slackAction, github: githubAction, notion: notionAction };
 
 export const IRREVERSIBLE_ACTIONS = new Set(["send_email", "send_message", "create_event", "update_event", "create_page", "edit_file"]);
 
@@ -93,7 +94,7 @@ export async function runPluginAction({ userId, agentId, taskId, pluginId, actio
       const handler = HANDLERS[pluginId];
       if (!handler) return { ok: false, error: `No handler wired up for plugin '${pluginId}'` };
       const cred = await getCredential(userId, pluginId);
-      if (!cred) return { ok: false, error: `'${pluginId}' isn't connected or its access has expired. Reconnect it on the Plugins page.` };
+      if (!cred) return { ok: false, error: `'${pluginId}' isn't connected or its access has expired. Connect it in Plugins first.` };
       data = await handler(cred, action, params || {});
     }
     await supabaseAdmin.from("action_log").insert({ agent_id: agentId, task_id: taskId, action: `${pluginId}.${action}`, params, result: data });
