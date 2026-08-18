@@ -5,12 +5,19 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 /**
  * Fast conversational path. Simple chat should not wait for Redis/BullMQ.
- * Returns plain assistant text and keeps credentials server-side.
+ * Conversation history is supplied by the task route so follow-up messages
+ * remain part of the same agent conversation.
  */
-export async function fastChat({ agent, message }) {
+export async function fastChat({ agent, message, history = [] }) {
   const model = await getModelForRole("fast");
   const system = agent?.system_prompt ||
     "You are Agentie, a helpful AI assistant. Answer naturally, clearly, and concisely. Do not pretend to have completed actions you have not completed.";
+
+  const safeHistory = Array.isArray(history)
+    ? history
+        .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+        .slice(-12)
+    : [];
 
   const response = await axios.post(
     OPENROUTER_URL,
@@ -18,6 +25,7 @@ export async function fastChat({ agent, message }) {
       model,
       messages: [
         { role: "system", content: system },
+        ...safeHistory,
         { role: "user", content: message },
       ],
       max_tokens: 700,
