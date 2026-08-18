@@ -1,10 +1,10 @@
 // ============================================================================
-// AGENTIE BACKGROUND SCHEDULER WORKER
+// AGENTIE BACKGROUND SCHEDULER WORKER (SUPABASE PERSISTENCE)
 // Trigger scheduled routines on target cron times
 // ============================================================================
 
-import { db } from '../db.js';
-import { taskQueue } from './taskQueue.js';
+import axios from 'axios';
+import { supabaseAdmin } from '../supabaseClient.js';
 
 class CronSchedulerWorker {
     constructor() {
@@ -72,54 +72,60 @@ class CronSchedulerWorker {
     }
 
     /**
-     * Poll active routines and spawn scheduled tasks
+     * Poll active routines from Supabase and spawn scheduled tasks
      */
-    checkAndTriggerScheduledRoutines() {
+    async checkAndTriggerScheduledRoutines() {
         const now = new Date();
-        const activeScheduled = db.routines.filter(r => r.status === 'active' && r.schedule);
+        try {
+            const { data: activeScheduled, error } = await supabaseAdmin
+                .from('routines')
+                .select('*, agents!inner(user_id)')
+                .eq('status', 'active')
+                .not('schedule', 'is', null);
 
-        for (const routine of activeScheduled) {
-            if (this.matchesCron(routine.schedule, now)) {
-                console.log(`[CronScheduler] Triggering scheduled routine '${routine.name}' (${routine.id}) for agent '${routine.agent_id}'`);
-                this.triggerRoutineTask(routine);
+            if (error || !activeScheduled) return;
+
+            for (const routine of activeScheduled) {
+                if (this.matchesCron(routine.schedule, now)) {
+                    console.log(`[CronScheduler] Triggering scheduled routine '${routine.name}' (${routine.id})`);
+                    await this.triggerRoutineTask(routine);
+                }
             }
+        } catch (err) {
+            // Silently handle offline/polling errors
         }
     }
 
     /**
-     * Create a scheduled task and enqueue
+     * Create a scheduled task in Supabase and notify worker
      */
-    triggerRoutineTask(routine) {
-        const newTask = {
-            id: 'task_sched_' + Date.now(),
-            user_id: 'default_user',
-            agent_id: routine.agent_id,
-            instruction: routine.name,
-            context: {
-                routine_id: routine.id,
-                source: 'scheduled',
-                schedule_human: routine.schedule_human,
-                triggered_at: new Date().toISOString()
-            },
-            source: 'scheduled',
-            routine_id: routine.id,
-            status: 'pending',
-            current_step: 0,
-            steps: routine.steps.map((s, idx) => ({
-                stepNumber: idx + 1,
-                action: `${s.plugin_id}:${s.action}`,
-                description: `${s.plugin_id} > ${s.action}`,
-                params: s.params,
-                status: 'pending'
-            })),
-            paused_step_data: null,
-            result: null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-        };
+    async triggerRoutineTask(routine) {
+        const userId = routine.agents?.user_id || 'default_user';
+        try {
+            const { data: task, error } = await supabaseAdmin
+                .from('tasks')
+                .insert({
+                    user_id: userId,
+                    agent_id: routine.agent_id,
+                    instruction: routine.name,
+                    status: 'pending',
+                    source: 'scheduled'
+                })
+                .select()
+                .single();
 
-        db.tasks.unshift(newTask);
-        taskQueue.enqueue(newTask.id);
+            if (error || !task) return;
+
+            // Notify worker queue
+            const workerUrl = process.env.WORKER_URL || 'http://localhost:4100';
+            try {
+                await axios.post(`${workerUrl}/enqueue`, { taskId: task.id });
+            } catch (notifyErr) {
+                console.warn('[CronScheduler] worker enqueue notification:', notifyErr.message);
+            }
+        } catch (err) {
+            console.error('[CronScheduler] failed to trigger routine task:', err.message);
+        }
     }
 }
 

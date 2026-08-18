@@ -1,11 +1,11 @@
 // ============================================================================
-// AGENTIE ROUTINE SERVICE
+// AGENTIE ROUTINE SERVICE (SUPABASE PERSISTENCE)
 // Teach Mode (Recording), Trigger Matching, Dynamic Adaptation & Replay Learning
 // ============================================================================
 
-import { db } from '../db.js';
+import { supabaseAdmin } from '../supabaseClient.js';
 
-// In-memory active recording sessions
+// In-memory active recording sessions during teach mode
 const activeRecordings = new Map();
 
 /**
@@ -86,7 +86,7 @@ export function captureSessionStep(sessionId, { plugin_id, action, params = {}, 
     const stepIndex = session.steps.length + 1;
     const dynamicKeys = [];
 
-    // Auto-detect dynamic parameter fields (e.g. date strings, today query words)
+    // Auto-detect dynamic parameter fields
     for (const [k, v] of Object.entries(params)) {
         if (typeof v === 'string') {
             if (v.toLowerCase().includes('today') || v.toLowerCase().includes('now') || v.toLowerCase().includes('current')) {
@@ -110,9 +110,9 @@ export function captureSessionStep(sessionId, { plugin_id, action, params = {}, 
 }
 
 /**
- * Save the recorded steps as a permanent Routine
+ * Save the recorded steps as a permanent Routine in Supabase
  */
-export function saveRecordingSession(sessionId, { name, trigger_patterns = [], schedule_input = null }) {
+export async function saveRecordingSession(sessionId, { name, trigger_patterns = [], schedule_input = null }) {
     const session = activeRecordings.get(sessionId);
     if (!session) throw new Error(`Recording session '${sessionId}' not found.`);
 
@@ -127,42 +127,42 @@ export function saveRecordingSession(sessionId, { name, trigger_patterns = [], s
         name.toLowerCase()
     ];
 
-    const { cron, human } = schedule_input ? parsePlainScheduleToCron(schedule_input) : { cron: null, human: null };
+    const { cron } = schedule_input ? parsePlainScheduleToCron(schedule_input) : { cron: null };
 
-    const newRoutine = {
-        id: 'rout_' + Date.now(),
-        agent_id: session.agent_id,
-        name: name || 'Custom Routine',
-        steps: session.steps,
-        trigger_pattern: triggers,
-        schedule: cron,
-        schedule_human: human,
-        dynamic_fields: {},
-        success_count: 0,
-        last_run_at: null,
-        last_run_status: null,
-        status: 'active',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-    };
+    const { data: newRoutine, error } = await supabaseAdmin
+        .from('routines')
+        .insert({
+            agent_id: session.agent_id,
+            name: name || 'Custom Routine',
+            steps: session.steps,
+            trigger_pattern: triggers,
+            schedule: cron,
+            dynamic_fields: {},
+            success_count: 0,
+            status: 'active'
+        })
+        .select()
+        .single();
 
-    db.routines.unshift(newRoutine);
     activeRecordings.delete(sessionId);
+    if (error) throw new Error(`Failed to save routine: ${error.message}`);
     return newRoutine;
 }
 
 /**
- * Semantic & Pattern Matching for incoming task instructions
- * Checks if instruction triggers an existing routine
+ * Match incoming task instruction to an existing active Routine for an agent
  */
-export function matchRoutineTrigger(agentId, instruction) {
-    if (!instruction) return null;
+export async function matchRoutineTrigger(agentId, instruction) {
+    if (!instruction || !agentId) return null;
     const cleanInst = instruction.toLowerCase().trim();
 
-    // Get active routines for this agent
-    const agentRoutines = db.routines.filter(r => r.agent_id === agentId && r.status === 'active');
+    const { data: routines } = await supabaseAdmin
+        .from('routines')
+        .select('*')
+        .eq('agent_id', agentId)
+        .eq('status', 'active');
 
-    for (const routine of agentRoutines) {
+    for (const routine of (routines || [])) {
         // 1. Direct name match
         if (cleanInst === routine.name.toLowerCase() || cleanInst.includes(routine.name.toLowerCase())) {
             return routine;
@@ -184,7 +184,6 @@ export function matchRoutineTrigger(agentId, instruction) {
 
 /**
  * Adapt dynamic parameters before replay
- * e.g. {{today_summary}} or {{date}}
  */
 export function adaptStepParams(step, context = {}) {
     const params = { ...step.params };
@@ -204,23 +203,31 @@ export function adaptStepParams(step, context = {}) {
 }
 
 /**
- * Record a routine run outcome & update self-improving stats
+ * Record a routine run outcome in Supabase
  */
-export function recordRoutineRun(routineId, status = 'success', stepPatch = null) {
-    const routine = db.routines.find(r => r.id === routineId);
-    if (!routine) return null;
+export async function recordRoutineRun(routineId, status = 'success', stepPatch = null) {
+    const updates = {
+        last_run_at: new Date().toISOString(),
+        last_run_status: status,
+        updated_at: new Date().toISOString()
+    };
 
-    routine.last_run_at = new Date().toISOString();
-    routine.last_run_status = status;
-    routine.updated_at = new Date().toISOString();
-
-    if (status === 'success') {
-        routine.success_count = (routine.success_count || 0) + 1;
+    if (stepPatch && Array.isArray(stepPatch)) {
+        updates.steps = stepPatch;
     }
 
-    // Apply self-improving correction patch if user adjusted parameters
-    if (stepPatch && Array.isArray(stepPatch)) {
-        routine.steps = stepPatch;
+    const { data: routine, error } = await supabaseAdmin
+        .from('routines')
+        .update(updates)
+        .eq('id', routineId)
+        .select()
+        .single();
+
+    if (!error && status === 'success' && routine) {
+        await supabaseAdmin
+            .from('routines')
+            .update({ success_count: (routine.success_count || 0) + 1 })
+            .eq('id', routineId);
     }
 
     return routine;

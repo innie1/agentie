@@ -3818,66 +3818,59 @@
 
             renderMainWorkspace(currentAgent);
 
-            // Execute OpenRouter AI Brain Call with local simulation fallback
+            // Dispatch message through the real task queue & worker pipeline
             (async () => {
+                let taskDispatched = false;
                 try {
-                    const res = await fetch('http://localhost:4000/api/chat', {
+                    const agentId = currentAgent.backend_id || currentAgent.id;
+                    const res = await fetch('http://localhost:4000/api/tasks', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            agent_id: currentAgent.id,
-                            message: rawText,
-                            history: currentAgent.messages.slice(-8)
+                            agent_id: agentId,
+                            instruction: rawText
                         })
                     });
 
                     if (res.ok) {
                         const data = await res.json();
-                        if (data && data.success && data.reply) {
-                            currentAgent.isWorking = false;
-                            currentAgent.messages.push({
-                                sender: 'agent',
-                                result_type: 'fact',
-                                text: data.reply
-                            });
-                            renderSidebar();
-                            if (dom.topAgentAvatarWrap) {
-                                dom.topAgentAvatarWrap.innerHTML = getOrbAvatarHtml(currentAgent.orbColor, 'xs', false, currentAgent.avatarShape || currentAgent.orbColor);
-                            }
-                            renderMainWorkspace(currentAgent);
-                            return;
+                        if (data && data.task) {
+                            taskDispatched = true;
+                            // Real task is now queued for worker execution with live Supabase Realtime tracking
                         }
                     }
                 } catch (err) {
-                    console.log('Backend chat call fallback:', err.message);
+                    console.log('Backend task dispatch fallback:', err.message);
                 }
 
-                // Fallback to local rule processor if backend offline
-                setTimeout(() => {
-                    currentAgent.isWorking = false;
-                    const activityResult = processPluginActivity(rawText, file);
+                if (!taskDispatched) {
+                    // Fallback to local rule processor if backend offline
+                    setTimeout(() => {
+                        currentAgent.isWorking = false;
+                        const activityResult = processPluginActivity(rawText, file);
 
-                    if (typeof activityResult === 'object' && activityResult !== null) {
-                        currentAgent.messages.push({
-                            sender: 'agent',
-                            result_type: activityResult.result_type || 'fact',
-                            result_payload: activityResult.result_payload || {},
-                            text: activityResult.text || ''
-                        });
-                    } else {
-                        currentAgent.messages.push({
-                            sender: 'agent',
-                            result_type: 'fact',
-                            text: activityResult
-                        });
-                    }
+                        if (typeof activityResult === 'object' && activityResult !== null) {
+                            currentAgent.messages.push({
+                                sender: 'agent',
+                                result_type: activityResult.result_type || 'fact',
+                                result_payload: activityResult.result_payload || {},
+                                text: activityResult.text || ''
+                            });
+                        } else {
+                            currentAgent.messages.push({
+                                sender: 'agent',
+                                result_type: 'fact',
+                                text: activityResult
+                            });
+                        }
 
-                    renderSidebar();
-                    if (dom.topAgentAvatarWrap) {
-                        dom.topAgentAvatarWrap.innerHTML = getOrbAvatarHtml(currentAgent.orbColor, 'xs', false, currentAgent.avatarShape || currentAgent.orbColor);
-                    }
-                    renderMainWorkspace(currentAgent);
-                }, 850);
+                        renderSidebar();
+                        if (dom.topAgentAvatarWrap) {
+                            dom.topAgentAvatarWrap.innerHTML = getOrbAvatarHtml(currentAgent.orbColor, 'xs', false, currentAgent.avatarShape || currentAgent.orbColor);
+                        }
+                        renderMainWorkspace(currentAgent);
+                    }, 850);
+                }
             })();
         }
 

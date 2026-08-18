@@ -7,19 +7,59 @@ import { OAUTH_PROVIDERS } from "../lib/oauthProviders.js";
 
 const router = express.Router();
 
+const DEFAULT_PLUGINS = [
+  { id: 'gmail', name: 'Gmail', category: 'Featured', auth_type: 'oauth', description: 'Read, summarize, draft and send emails with your connected Google account.' },
+  { id: 'gcal', name: 'Google Calendar', category: 'Featured', auth_type: 'oauth', description: 'Check schedules, manage meeting invites, and sync events seamlessly.' },
+  { id: 'slack', name: 'Slack', category: 'Featured', auth_type: 'oauth', description: 'Monitor channels, send thread replies, and dispatch webhooks to your team.' },
+  { id: 'github', name: 'GitHub', category: 'Featured', auth_type: 'oauth', description: 'Inspect pull requests, review commits, and query code repositories.' },
+  { id: 'notion', name: 'Notion', category: 'Featured', auth_type: 'oauth', description: 'Sync knowledge bases, read workspace pages, and draft formatted docs.' },
+  { id: 'granola', name: 'Granola', category: 'Featured', auth_type: 'oauth', description: 'Access real-time meeting notes, transcripts, and AI action items.' },
+  { id: 'outlook', name: 'Microsoft Outlook', category: 'Email & Communication', auth_type: 'oauth', description: 'Connect to Microsoft 365 Exchange mailboxes to read and draft emails.' },
+  { id: 'discord', name: 'Discord', category: 'Email & Communication', auth_type: 'api_key', description: 'Post notifications, manage community channels, and interact via bot tokens.' },
+  { id: 'telegram', name: 'Telegram', category: 'Email & Communication', auth_type: 'api_key', description: 'Send direct messages, broadcast alerts, and manage Telegram bots.' },
+  { id: 'whatsapp', name: 'WhatsApp Business', category: 'Email & Communication', auth_type: 'api_key', description: 'Automate customer support chats and dispatch WhatsApp notifications.' },
+  { id: 'zoom', name: 'Zoom', category: 'Email & Communication', auth_type: 'oauth', description: 'Generate instant video meeting links and summarize cloud recordings.' },
+  { id: 'twilio', name: 'Twilio SMS', category: 'Email & Communication', auth_type: 'api_key', description: 'Send SMS text messages and telephony alerts to phone numbers.' },
+  { id: 'x_twitter', name: 'X / Twitter', category: 'Social Media', auth_type: 'oauth', description: 'Draft and schedule tweets, analyze engagement metrics, and monitor mentions.' },
+  { id: 'linkedin', name: 'LinkedIn', category: 'Social Media', auth_type: 'oauth', description: 'Publish professional updates, manage company pages, and expand reach.' },
+  { id: 'youtube', name: 'YouTube', category: 'Social Media', auth_type: 'oauth', description: 'Analyze video transcripts, optimize video titles, and track channel analytics.' },
+  { id: 'instagram', name: 'Instagram', category: 'Social Media', auth_type: 'oauth', description: 'Generate post captions, schedule carousel updates, and analyze reach.' },
+  { id: 'hubspot', name: 'HubSpot CRM', category: 'Social Media', auth_type: 'api_key', description: 'Sync leads, update CRM deal stages, and track outbound marketing campaigns.' },
+  { id: 'canva', name: 'Canva', category: 'Productivity & Workspace', auth_type: 'oauth', description: 'Create graphics, edit social media templates, presentations, and export visual assets.' },
+  { id: 'figma', name: 'Figma', category: 'Productivity & Workspace', auth_type: 'oauth', description: 'Inspect design frames, export UI assets, and review layout comments.' },
+  { id: 'gdrive', name: 'Google Drive', category: 'Productivity & Workspace', auth_type: 'oauth', description: 'Search and read Google Docs, Sheets, PDFs, and team folder assets.' },
+  { id: 'linear', name: 'Linear', category: 'Productivity & Workspace', auth_type: 'oauth', description: 'Create issues, track sprint cycles, and update product roadmaps.' },
+  { id: 'trello', name: 'Trello', category: 'Productivity & Workspace', auth_type: 'oauth', description: 'Manage kanban boards, drag cards, and organize team task lists.' },
+  { id: 'jira', name: 'Jira Software', category: 'Productivity & Workspace', auth_type: 'oauth', description: 'Track agile development epics, user stories, and release versions.' },
+  { id: 'airtable', name: 'Airtable', category: 'Productivity & Workspace', auth_type: 'oauth', description: 'Query relational tables, update records, and generate workflow views.' },
+  { id: 'postgres', name: 'PostgreSQL Database', category: 'Developer & Data', auth_type: 'api_key', description: 'Execute secure SQL queries, inspect table schemas, and aggregate data.' },
+  { id: 'stripe', name: 'Stripe Payments', category: 'Developer & Data', auth_type: 'api_key', description: 'Create invoices, look up customer subscriptions, and check billing history.' },
+  { id: 'shopify', name: 'Shopify Store', category: 'Developer & Data', auth_type: 'api_key', description: 'Manage e-commerce inventory, look up order statuses, and create products.' },
+  { id: 'aws', name: 'AWS Cloud Services', category: 'Developer & Data', auth_type: 'api_key', description: 'Deploy serverless jobs, manage S3 storage buckets, and monitor CloudWatch.' }
+];
+
 // GET /api/plugins — list catalog + which ones this user has added
 router.get("/", async (req, res) => {
-  const userId = req.user.id; // set by auth middleware, see index.js
-  const { data: plugins, error: pErr } = await supabaseAdmin.from("plugins").select("*").eq("status", "active");
-  if (pErr) return res.status(500).json({ error: pErr.message });
+  const userId = req.user.id;
+  let plugins = [];
+  let addedMap = {};
 
-  const { data: userPlugins, error: uErr } = await supabaseAdmin
-    .from("user_plugins")
-    .select("plugin_id, status, expires_at")
-    .eq("user_id", userId);
-  if (uErr) return res.status(500).json({ error: uErr.message });
+  try {
+    const { data: dbPlugins, error: pErr } = await supabaseAdmin.from("plugins").select("*").eq("status", "active");
+    if (!pErr && dbPlugins && dbPlugins.length > 0) {
+      plugins = dbPlugins;
+      const { data: userPlugins } = await supabaseAdmin
+        .from("user_plugins")
+        .select("plugin_id, status, expires_at")
+        .eq("user_id", userId);
+      addedMap = Object.fromEntries((userPlugins || []).map((p) => [p.plugin_id, p]));
+    } else {
+      plugins = DEFAULT_PLUGINS;
+    }
+  } catch (err) {
+    plugins = DEFAULT_PLUGINS;
+  }
 
-  const addedMap = Object.fromEntries(userPlugins.map((p) => [p.plugin_id, p]));
   const merged = plugins.map((p) => ({
     ...p,
     added: !!addedMap[p.id],
