@@ -6,16 +6,96 @@ import { fastChat, isFastChatMessage } from "../lib/fastChat.js";
 const router = express.Router();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const CAPABILITY_GROUPS = [
+  { words: ["email", "inbox", "gmail", "mail", "message", "reply", "newsletter", "unsubscribe"], keys: ["email", "mail", "gmail", "communication", "communications"] },
+  { words: ["whatsapp", "customer", "customers", "support", "chat", "client"], keys: ["whatsapp", "customer", "support", "communications"] },
+  { words: ["calendar", "meeting", "schedule", "appointment", "event", "reminder"], keys: ["calendar", "scheduling", "assistant"] },
+  { words: ["code", "coding", "bug", "debug", "program", "github", "repository", "repo", "developer"], keys: ["coding", "code", "developer", "github", "software"] },
+  { words: ["research", "researcher", "competitor", "market", "find", "investigate", "analyze"], keys: ["research", "analysis", "market", "researcher"] },
+  { words: ["finance", "financial", "money", "budget", "accounting", "invoice", "expense"], keys: ["finance", "financial", "accounting", "money"] },
+  { words: ["marketing", "advert", "advertising", "campaign", "social", "content", "seo"], keys: ["marketing", "advertising", "content", "seo"] },
+  { words: ["file", "document", "pdf", "spreadsheet", "docx", "excel", "report"], keys: ["documents", "files", "document", "reporting"] },
+];
+
+function normalize(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function agentProfileText(agent) {
+  return normalize([
+    agent.name,
+    agent.role,
+    agent.goal,
+    agent.character?.description,
+    agent.character?.personality,
+    ...(Array.isArray(agent.tags) ? agent.tags : []),
+    ...(Array.isArray(agent.allowed_plugins) ? agent.allowed_plugins : []),
+  ].filter(Boolean).join(" "));
+}
+
+function scoreAgent(agent, instruction, currentAgentId) {
+  if (!agent || agent.id === currentAgentId) return 0;
+  const text = normalize(instruction);
+  const profile = agentProfileText(agent);
+  let score = 0;
+  for (const group of CAPABILITY_GROUPS) {
+    const taskHit = group.words.some(word => text.includes(word));
+    if (!taskHit) continue;
+    if (group.keys.some(key => profile.includes(normalize(key)))) score += 8;
+  }
+  const taskWords = [...new Set(text.split(" ").filter(w => w.length >= 4))];
+  for (const word of taskWords) {
+    if (profile.includes(word)) score += 1;
+  }
+  if (agent.status && ["active", "working", "online"].includes(String(agent.status).toLowerCase())) score += 0.5;
+  return score;
+}
+
+async function findBestHandoffAgent({ userId, currentAgentId, instruction }) {
+  const { data: agents, error } = await supabaseAdmin.from("agents")
+    .select("id,name,role,goal,character,tags,allowed_plugins,status,created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(error.message);
+  const ranked = (agents || [])
+    .map(agent => ({ agent, score: scoreAgent(agent, instruction, currentAgentId) }))
+    .filter(item => item.score >= 5)
+    .sort((a, b) => b.score - a.score);
+  return ranked[0]?.agent || null;
+}
+
+async function createHandoff({ userId, fromAgent, toAgent, instruction, history = [] }) {
+  if (!toAgent || toAgent.id === fromAgent.id) return null;
+  const { data: task, error: taskError } = await supabaseAdmin.from("tasks").insert({
+    user_id: userId,
+    agent_id: toAgent.id,
+    instruction,
+    status: "pending",
+    source: "handoff",
+    context: { conversation: history, handoff: { from_agent_id: fromAgent.id, from_agent_name: fromAgent.name, to_agent_id: toAgent.id, to_agent_name: toAgent.name } },
+    result_payload: { handoff: true, delegated_by: fromAgent.id, delegated_by_name: fromAgent.name, receiving_agent: toAgent.name },
+  }).select().single();
+  if (taskError) throw new Error(taskError.message);
+
+  try {
+    const workerUrl = process.env.WORKER_URL || "https://agentie-production.up.railway.app";
+    await axios.post(`${workerUrl}/enqueue`, { taskId: task.id });
+  } catch (err) {
+    console.error("[tasks] handoff worker enqueue failed:", err.message);
+  }
+  return task;
+}
+
 async function resolveChatAgent({ agentId, userId, instruction }) {
   if (UUID_RE.test(String(agentId || ""))) {
     const { data: agent, error } = await supabaseAdmin.from("agents")
-      .select("id, name, system_prompt, role, goal, character, tags, allowed_plugins")
+      .select("id, name, system_prompt, role, goal, character, tags, allowed_plugins, status")
       .eq("id", agentId).eq("user_id", userId).single();
     if (error || !agent) throw new Error(error?.message || "Agent not found");
     return agent;
   }
   const { data: newest, error: newestError } = await supabaseAdmin.from("agents")
-    .select("id, name, system_prompt, role, goal, character, tags, allowed_plugins, created_at")
+    .select("id, name, system_prompt, role, goal, character, tags, allowed_plugins, status, created_at")
     .eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (newestError) throw new Error(newestError.message);
   if (newest) return newest;
@@ -24,7 +104,7 @@ async function resolveChatAgent({ agentId, userId, instruction }) {
     user_id: userId, name: "Agentie Assistant", role: "General Assistant", goal,
     system_prompt: `You are a helpful Agentie assistant. Your current focus is: ${goal}`,
     character: {}, tags: ["General Assistant", "Assistant"], allowed_plugins: []
-  }).select("id, name, system_prompt, role, goal, character, tags, allowed_plugins").single();
+  }).select("id, name, system_prompt, role, goal, character, tags, allowed_plugins, status").single();
   if (createError) throw new Error(createError.message);
   return created;
 }
@@ -36,9 +116,6 @@ async function resolveTaskAgent({ agentId, userId }) {
     if (error || !agent) throw new Error("Saved agent not found");
     return agent;
   }
-
-  // Frontends created before persistent UUIDs may still send agent_* IDs.
-  // Resolve those IDs server-side instead of rejecting a valid task.
   const { data: newest, error } = await supabaseAdmin.from("agents")
     .select("id, name, created_at").eq("user_id", userId)
     .order("created_at", { ascending: false }).limit(1).maybeSingle();
@@ -66,6 +143,26 @@ router.post("/", async (req, res) => {
       const history = Array.isArray(suppliedHistory)
         ? suppliedHistory.filter(m => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string").slice(-12)
         : [];
+
+      const receivingAgent = await findBestHandoffAgent({ userId, currentAgentId: agent.id, instruction });
+      if (receivingAgent) {
+        const task = await createHandoff({ userId, fromAgent: agent, toAgent: receivingAgent, instruction, history });
+        return res.status(200).json({
+          chat: {
+            id: `chat_${Date.now()}`,
+            agent_id: agent.id,
+            agent,
+            instruction,
+            result: `${agent.name} handed this to ${receivingAgent.name}, who is now working on it.`,
+            result_type: "handoff",
+            result_payload: { mode: "handoff", handoff: true, from_agent: agent, to_agent: receivingAgent, task_id: task.id, status: "working" },
+            status: "working",
+          },
+          handoff: { task_id: task.id, from_agent: agent, to_agent: receivingAgent, status: "working" },
+          fast: true,
+        });
+      }
+
       const { text, model } = await fastChat({ agent, message: instruction, history });
       return res.status(200).json({ chat: { id: `chat_${Date.now()}`, agent_id: agent.id, agent, instruction, result: text, result_type: "fact", result_payload: { mode: "chat", model }, status: "done" }, fast: true });
     } catch (err) {
@@ -93,6 +190,17 @@ router.post("/", async (req, res) => {
     if (assistantText) messages.push({ role: "assistant", content: String(assistantText).slice(0, 4000) });
     return messages;
   }).slice(-12);
+
+  try {
+    const fullAgent = await resolveChatAgent({ agentId: realAgent.id, userId, instruction });
+    const receivingAgent = await findBestHandoffAgent({ userId, currentAgentId: fullAgent.id, instruction });
+    if (receivingAgent) {
+      const task = await createHandoff({ userId, fromAgent: fullAgent, toAgent: receivingAgent, instruction, history });
+      return res.status(201).json({ task, handoff: { task_id: task.id, from_agent: fullAgent, to_agent: receivingAgent, status: "working" } });
+    }
+  } catch (err) {
+    console.warn("[tasks] automatic routing skipped:", err.message);
+  }
 
   const { data: task, error } = await supabaseAdmin.from("tasks").insert({
     user_id: userId, agent_id: realAgent.id, instruction, status: "pending", context: { conversation: history }
