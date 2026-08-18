@@ -7,23 +7,58 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-async function getCredential(userId, pluginId) {
-  const lookupIds = pluginId === "gcal" ? ["gcal", "google_calendar"] : [pluginId];
-  const { data, error } = await supabaseAdmin.from("user_plugins").select("*").eq("user_id", userId).in("plugin_id", lookupIds).eq("status", "active").limit(1).maybeSingle();
-  if (error || !data || data.status !== "active") return null;
-  if (data.expires_at && new Date(data.expires_at) < new Date(Date.now() + 5 * 60 * 1000)) {
-    const refreshed = await refreshGoogleToken(data); if (refreshed) return refreshed;
-  }
-  return { access_token: decrypt(data.access_token), refresh_token: decrypt(data.refresh_token), api_key: decrypt(data.api_key) };
+function decodeCredentialValue(value) {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== "string") return value;
+  try { return decrypt(value); } catch { return value; }
 }
 
-async function refreshGoogleToken(row) {
-  const refreshToken = decrypt(row.refresh_token); if (!refreshToken) return null;
+function parseStoredCredentials(row) {
+  const stored = row?.credentials;
+  if (!stored || typeof stored !== "object") return null;
+  const source = stored.values && typeof stored.values === "object" ? stored.values : stored;
+  const out = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (["type", "token_type", "expires_at"].includes(key)) continue;
+    if (value === null || value === undefined) continue;
+    out[key] = decodeCredentialValue(value);
+  }
+  if (stored.access_token) out.access_token = decodeCredentialValue(stored.access_token);
+  if (stored.refresh_token) out.refresh_token = decodeCredentialValue(stored.refresh_token);
+  if (stored.expires_at) out.expires_at = stored.expires_at;
+  if (!out.access_token) out.access_token = out.token || out.api_key || out.apiKey || null;
+  return out;
+}
+
+async function getCredential(userId, pluginId) {
+  const lookupIds = pluginId === "gcal" ? ["gcal", "google_calendar"] : [pluginId];
+  const { data, error } = await supabaseAdmin.from("user_plugins").select("id,plugin_id,credentials,status").eq("user_id", userId).in("plugin_id", lookupIds).eq("status", "active").limit(1).maybeSingle();
+  if (error || !data || data.status !== "active") return null;
+  const cred = parseStoredCredentials(data);
+  if (!cred) return null;
+  if (cred.expires_at && new Date(cred.expires_at) < new Date(Date.now() + 5 * 60 * 1000) && cred.refresh_token && ["gmail", "gcal", "google_calendar"].includes(pluginId)) {
+    const refreshed = await refreshGoogleToken(data, cred); if (refreshed) return refreshed;
+  }
+  return cred;
+}
+
+async function refreshGoogleToken(row, currentCred = null) {
+  const refreshToken = currentCred?.refresh_token || parseStoredCredentials(row)?.refresh_token;
+  if (!refreshToken) return null;
   try {
     const res = await axios.post("https://oauth2.googleapis.com/token", new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, refresh_token: refreshToken, grant_type: "refresh_token" }));
-    const newAccessToken = res.data.access_token; const newExpiresAt = new Date(Date.now() + res.data.expires_in * 1000).toISOString();
-    await supabaseAdmin.from("user_plugins").update({ access_token: encrypt(newAccessToken), expires_at: newExpiresAt }).eq("id", row.id);
-    return { access_token: newAccessToken, refresh_token: refreshToken, api_key: null };
+    const newAccessToken = res.data.access_token;
+    const newExpiresAt = new Date(Date.now() + res.data.expires_in * 1000).toISOString();
+    const previous = row.credentials || {};
+    const updated = {
+      ...previous,
+      access_token: encrypt(newAccessToken),
+      refresh_token: previous.refresh_token || encrypt(refreshToken),
+      expires_at: newExpiresAt,
+      type: previous.type || "oauth"
+    };
+    await supabaseAdmin.from("user_plugins").update({ credentials: updated, status: "active" }).eq("id", row.id);
+    return { access_token: newAccessToken, refresh_token: refreshToken, expires_at: newExpiresAt };
   } catch (err) {
     console.error("[pluginRunner] Google token refresh failed:", err.response?.data || err.message);
     await supabaseAdmin.from("user_plugins").update({ status: "expired" }).eq("id", row.id); return null;
@@ -55,7 +90,9 @@ async function slackAction(cred, action, params) {
 }
 
 async function githubAction(cred, action, params) {
-  const headers = { Authorization: `Bearer ${cred.access_token}`, Accept: "application/vnd.github+json" };
+  const token = cred.access_token || cred.token || cred.api_key;
+  if (!token) throw new Error("GitHub is connected but no usable token was found");
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
   if (action === "list_prs") { const r = await axios.get(`https://api.github.com/repos/${params.owner}/${params.repo}/pulls`, { headers }); return r.data; }
   if (action === "get_commit") { const r = await axios.get(`https://api.github.com/repos/${params.owner}/${params.repo}/commits/${params.sha}`, { headers }); return r.data; }
   if (action === "search_code") { const r = await axios.get("https://api.github.com/search/code", { headers, params: { q: params.query } }); return r.data; }
