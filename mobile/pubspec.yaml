@@ -1,0 +1,30 @@
+name: agentie_mobile_ai
+description: Local-first Gemma 4 brain, multimodal inference, and document export services for Agentie.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: '>=3.12.0 <4.0.0'
+  flutter: '>=3.44.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  archive: ^4.0.9
+  crypto: ^3.0.6
+  dio: ^5.11.0
+  flutter_gemma: ^1.5.9
+  flutter_gemma_litertlm: ^1.4.2
+  flutter_riverpod: ^3.4.2
+  path: ^1.9.1
+  path_provider: ^2.1.6
+  pdf: ^3.13.0
+  printing: ^5.15.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

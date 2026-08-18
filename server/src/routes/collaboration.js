@@ -59,7 +59,8 @@ router.post("/handoff", async (req, res) => {
       from_agent_id: fromAgent.id,
       to_agent_id: toAgent.id,
       task_id: task.id,
-      note,
+      note: note || instruction,
+      context_summary: note || instruction,
     }).select().single();
     if (handoffError) return res.status(500).json({ error: handoffError.message });
 

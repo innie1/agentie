@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "bundled": false,
+  "target": "unconfigured",
+  "model": {
+    "filename": "agentie-local-model.litertlm",
+    "variant": "",
+    "expectedBytes": null,
+    "sha256": ""
+  }
+}

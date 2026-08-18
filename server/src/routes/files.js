@@ -1,16 +1,11 @@
 import express from "express";
 import { supabaseAdmin } from "../supabaseClient.js";
+import { encodeGeneratedFile, FILE_MIME_TYPES, fileExtension } from "../lib/fileEncoding.js";
 
 const router = express.Router();
-const SUPPORTED_EDIT_EXTENSIONS = new Set(["txt", "md", "json", "csv", "html"]);
 
 function safeName(name = "file.txt") {
   return String(name).replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 180) || "file.txt";
-}
-
-function extensionOf(name = "file.txt") {
-  const match = String(name).toLowerCase().match(/\.([a-z0-9]+)$/);
-  return match?.[1] || "txt";
 }
 
 router.get("/", async (req, res) => {
@@ -36,11 +31,19 @@ router.post("/", async (req, res) => {
   }
 
   const filename = safeName(name);
-  const extension = extensionOf(filename);
-  const buffer = typeof content_base64 === "string"
-    ? Buffer.from(content_base64, "base64")
-    : Buffer.from(content, "utf8");
-  const text = typeof content === "string" ? content : null;
+  let extension = fileExtension(filename);
+  let buffer;
+  let text;
+  try {
+    if (typeof content_base64 === "string") {
+      buffer = Buffer.from(content_base64, "base64");
+      text = typeof content === "string" ? content : null;
+    } else {
+      ({ extension, buffer, text } = await encodeGeneratedFile(filename, content));
+    }
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
 
   if (agent_id) {
     const { data: agent } = await supabaseAdmin
@@ -56,7 +59,7 @@ router.post("/", async (req, res) => {
     user_id: req.user.id,
     agent_id: agent_id || null,
     name: filename,
-    mime_type: mime_type || "application/octet-stream",
+    mime_type: mime_type || FILE_MIME_TYPES[extension] || "application/octet-stream",
     extension,
     content_text: text,
     content_base64: buffer.toString("base64"),
@@ -80,8 +83,21 @@ router.get("/:id", async (req, res) => {
 
   const buffer = Buffer.from(data.content_base64 || "", "base64");
   res.setHeader("Content-Type", data.mime_type || "application/octet-stream");
-  res.setHeader("Content-Disposition", `inline; filename="${safeName(data.name).replace(/"/g, "")}"`);
+  res.setHeader("Content-Disposition", `attachment; filename="${safeName(data.name).replace(/"/g, "")}"`);
   res.send(buffer);
+});
+
+// Safe in-chat preview. Binary bytes never enter the DOM; the retained source
+// text is used for docx/xlsx/pdf and editable text formats alike.
+router.get("/:id/preview", async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from("agent_files")
+    .select("id,name,mime_type,extension,size_bytes,version,content_text,updated_at")
+    .eq("id", req.params.id)
+    .eq("user_id", req.user.id)
+    .single();
+  if (error || !data) return res.status(404).json({ error: error?.message || "File not found" });
+  res.json({ file: { ...data, content_text: data.content_text || "Preview is unavailable for this file." } });
 });
 
 router.patch("/:id", async (req, res) => {
@@ -97,21 +113,22 @@ router.patch("/:id", async (req, res) => {
 
   if (readError || !current) return res.status(404).json({ error: readError?.message || "File not found" });
 
-  if (!SUPPORTED_EDIT_EXTENSIONS.has(current.extension)) {
-    return res.status(400).json({
-      error: "Direct editing is currently supported for text, Markdown, JSON, CSV and HTML files. Ask the agent to regenerate an Office/PDF file instead.",
-    });
-  }
-
   const filename = safeName(name || current.name);
-  const buffer = Buffer.from(content, "utf8");
+  let encoded;
+  try {
+    encoded = await encodeGeneratedFile(filename, content);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
   const { data, error } = await supabaseAdmin
     .from("agent_files")
     .update({
       name: filename,
-      content_text: content,
-      content_base64: buffer.toString("base64"),
-      size_bytes: buffer.length,
+      mime_type: FILE_MIME_TYPES[encoded.extension] || "application/octet-stream",
+      extension: encoded.extension,
+      content_text: encoded.text,
+      content_base64: encoded.buffer.toString("base64"),
+      size_bytes: encoded.buffer.length,
       version: (current.version || 1) + 1,
       updated_at: new Date().toISOString(),
     })

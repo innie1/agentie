@@ -8,6 +8,20 @@ import { withPluginAsset } from "../lib/pluginAssets.js";
 
 const router = express.Router();
 
+function publicApiUrl(req) {
+  const forwardedProtocol = String(req.get("x-forwarded-proto") || "").split(",")[0].trim();
+  return String(process.env.API_PUBLIC_URL || `${forwardedProtocol || req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+}
+
+const EXECUTABLE_PLUGINS = new Set(["gmail", "gcal", "slack", "github", "notion", "agentmail", "discord", "telegram", "whatsapp", "twilio", "hubspot", "stripe", "shopify"]);
+const OAUTH_DEFAULTS = {
+  gmail: { oauth_authorize_url: "https://accounts.google.com/o/oauth2/v2/auth", oauth_token_url: "https://oauth2.googleapis.com/token", oauth_scopes: ["openid", "email", "https://www.googleapis.com/auth/gmail.modify"] },
+  gcal: { oauth_authorize_url: "https://accounts.google.com/o/oauth2/v2/auth", oauth_token_url: "https://oauth2.googleapis.com/token", oauth_scopes: ["openid", "email", "https://www.googleapis.com/auth/calendar"] },
+  slack: { oauth_authorize_url: "https://slack.com/oauth/v2/authorize", oauth_token_url: "https://slack.com/api/oauth.v2.access", oauth_scopes: ["channels:history", "chat:write"] },
+  github: { oauth_authorize_url: "https://github.com/login/oauth/authorize", oauth_token_url: "https://github.com/login/oauth/access_token", oauth_scopes: ["repo", "read:user"] },
+  notion: { oauth_authorize_url: "https://api.notion.com/v1/oauth/authorize", oauth_token_url: "https://api.notion.com/v1/oauth/token", oauth_scopes: [] },
+};
+
 const DEFAULT_PLUGINS = [
   { id: 'gmail', name: 'Gmail', category: 'Featured', auth_type: 'oauth', description: 'Read, summarize, draft and send emails with your connected Google account.' },
   { id: 'gcal', name: 'Google Calendar', category: 'Featured', auth_type: 'oauth', description: 'Check schedules, manage meeting invites, and sync events seamlessly.' },
@@ -48,27 +62,28 @@ router.get("/", async (req, res) => {
     const { data: dbPlugins, error: pErr } = await supabaseAdmin.from("plugins").select("*").eq("status", "active");
     if (!pErr && dbPlugins?.length) {
       plugins = dbPlugins;
-      const { data: userPlugins } = await supabaseAdmin.from("user_plugins").select("plugin_id,status").eq("user_id", userId);
-      addedMap = Object.fromEntries((userPlugins || []).map((p) => [p.plugin_id, p]));
     } else plugins = DEFAULT_PLUGINS;
   } catch { plugins = DEFAULT_PLUGINS; }
+  const { data: userPlugins } = await supabaseAdmin.from("user_plugins").select("plugin_id,status").eq("user_id", userId);
+  addedMap = Object.fromEntries((userPlugins || []).map((p) => [p.plugin_id, p]));
   if (!plugins.some((p) => p.id === "agentmail")) plugins.push(DEFAULT_PLUGINS.find((p) => p.id === "agentmail"));
-  res.json({ plugins: plugins.map(p => ({ ...withPluginAsset(p), added: !!addedMap[p.id], added_status: addedMap[p.id]?.status ?? null })) });
+  res.json({ plugins: plugins.map(p => ({ ...withPluginAsset(p), ...(OAUTH_DEFAULTS[p.id] || {}), added: !!addedMap[p.id], added_status: addedMap[p.id]?.status ?? null, execution_status: EXECUTABLE_PLUGINS.has(p.id) ? "ready" : "coming_soon" })) });
 });
 
 router.post("/:pluginId/start", async (req, res) => {
   const userId = req.user.id;
   const { pluginId } = req.params;
   const { data: plugin, error } = await supabaseAdmin.from("plugins").select("*").eq("id", pluginId).single();
-  const pluginDef = plugin || DEFAULT_PLUGINS.find((p) => p.id === pluginId);
-  if ((error && !pluginDef) || !pluginDef) return res.status(404).json({ error: "Unknown plugin" });
+  const basePlugin = plugin || DEFAULT_PLUGINS.find((p) => p.id === pluginId);
+  if (!basePlugin) return res.status(404).json({ error: "Unknown plugin" });
+  const pluginDef = { ...basePlugin, ...(OAUTH_DEFAULTS[pluginId] || {}) };
   if (pluginDef.auth_type !== "oauth") return res.status(400).json({ error: "This plugin uses api_key flow, call /add-api-key instead" });
   const provider = OAUTH_PROVIDERS[pluginId];
   if (!provider?.clientId) return res.status(500).json({ error: `No OAuth app configured for '${pluginId}'. Set its client id/secret in server env vars.` });
   const state = crypto.randomBytes(24).toString("hex");
   const { error: insertErr } = await supabaseAdmin.from("pending_auth").insert({ user_id: userId, plugin_id: pluginId, state });
   if (insertErr) return res.status(500).json({ error: insertErr.message });
-  const redirectUri = `${process.env.APP_URL}/api/plugins/callback`;
+  const redirectUri = `${publicApiUrl(req)}/api/plugins/callback`;
   const params = new URLSearchParams({ client_id: provider.clientId, redirect_uri: redirectUri, scope: (pluginDef.oauth_scopes || []).join(" "), response_type: "code", state, access_type: "offline", prompt: "consent" });
   res.json({ authorize_url: `${pluginDef.oauth_authorize_url}?${params.toString()}` });
 });
@@ -80,8 +95,8 @@ export async function oauthCallbackHandler(req, res) {
   if (pErr || !pending) return res.status(400).send("Invalid or expired auth attempt. Please try Add again.");
   const provider = OAUTH_PROVIDERS[pending.plugin_id];
   const { data: plugin } = await supabaseAdmin.from("plugins").select("*").eq("id", pending.plugin_id).single();
-  const pluginDef = plugin || DEFAULT_PLUGINS.find((p) => p.id === pending.plugin_id);
-  const redirectUri = `${process.env.APP_URL}/api/plugins/callback`;
+  const pluginDef = { ...(plugin || DEFAULT_PLUGINS.find((p) => p.id === pending.plugin_id)), ...(OAUTH_DEFAULTS[pending.plugin_id] || {}) };
+  const redirectUri = `${publicApiUrl(req)}/api/plugins/callback`;
   try {
     const tokenReqConfig = { headers: { "Content-Type": "application/x-www-form-urlencoded", ...(provider.tokenHeaders || {}) } };
     if (provider.basicAuth) tokenReqConfig.auth = provider.basicAuth();
@@ -94,10 +109,10 @@ export async function oauthCallbackHandler(req, res) {
     const { error: saveErr } = await supabaseAdmin.from("user_plugins").upsert({ user_id: pending.user_id, plugin_id: pending.plugin_id, credentials, status: "active" }, { onConflict: "user_id,plugin_id" });
     if (saveErr) throw saveErr;
     await supabaseAdmin.from("pending_auth").delete().eq("id", pending.id);
-    res.redirect(`${process.env.APP_URL}/plugins?added=${pending.plugin_id}`);
+    res.redirect(`${process.env.APP_URL}/?plugin_added=${encodeURIComponent(pending.plugin_id)}`);
   } catch (err) {
     console.error("[oauth callback]", err.response?.data || err.message);
-    res.redirect(`${process.env.APP_URL}/plugins?error=${pending.plugin_id}`);
+    res.redirect(`${process.env.APP_URL}/?plugin_error=${encodeURIComponent(pending.plugin_id)}`);
   }
 }
 

@@ -4,6 +4,8 @@ import { decrypt, encrypt } from "./crypto.js";
 import { runFileTool } from "./fileTools.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { recordActivity } from "./activity.js";
+import { getToolDefinition, normalizePluginId, TOOL_REGISTRY, validateToolCall } from "./toolRegistry.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -96,6 +98,8 @@ async function githubAction(cred, action, params) {
   if (action === "list_prs") { const r = await axios.get(`https://api.github.com/repos/${params.owner}/${params.repo}/pulls`, { headers }); return r.data; }
   if (action === "get_commit") { const r = await axios.get(`https://api.github.com/repos/${params.owner}/${params.repo}/commits/${params.sha}`, { headers }); return r.data; }
   if (action === "search_code") { const r = await axios.get("https://api.github.com/search/code", { headers, params: { q: params.query } }); return r.data; }
+  if (action === "create_issue") { const r = await axios.post(`https://api.github.com/repos/${params.owner}/${params.repo}/issues`, { title: params.title, body: params.body || "" }, { headers }); return r.data; }
+  if (action === "merge_pull_request") { const r = await axios.put(`https://api.github.com/repos/${params.owner}/${params.repo}/pulls/${params.pull_number}/merge`, { merge_method: params.merge_method || "merge" }, { headers }); return r.data; }
   throw new Error(`Unknown github action: ${action}`);
 }
 
@@ -104,7 +108,31 @@ async function notionAction(cred, action, params) {
   if (action === "read_page") { const r = await axios.get(`https://api.notion.com/v1/pages/${params.page_id}`, { headers }); return r.data; }
   if (action === "search_workspace") { const r = await axios.post("https://api.notion.com/v1/search", { query: params.query }, { headers }); return r.data; }
   if (action === "create_page") { const r = await axios.post("https://api.notion.com/v1/pages", params.payload, { headers }); return r.data; }
+  if (action === "delete_page") { const r = await axios.patch(`https://api.notion.com/v1/pages/${params.page_id}`, { archived: true }, { headers }); return r.data; }
   throw new Error(`Unknown notion action: ${action}`);
+}
+
+async function apiKeyAction(cred, action, params) {
+  if (action === "send_telegram_message") return (await axios.post(`https://api.telegram.org/bot${cred.bot_token}/sendMessage`, { chat_id: params.chat_id, text: params.text })).data;
+  if (action === "send_discord_message") return (await axios.post(`https://discord.com/api/v10/channels/${params.channel_id}/messages`, { content: params.text }, { headers: { Authorization: `Bot ${cred.bot_token}` } })).data;
+  if (action === "send_whatsapp_message") return (await axios.post(`https://graph.facebook.com/v23.0/${cred.phone_number_id}/messages`, { messaging_product: "whatsapp", to: params.to, type: "text", text: { body: params.text } }, { headers: { Authorization: `Bearer ${cred.access_token}` } })).data;
+  if (action === "send_sms") return (await axios.post(`https://api.twilio.com/2010-04-01/Accounts/${cred.account_sid}/Messages.json`, new URLSearchParams({ To: params.to, From: params.from, Body: params.text }), { auth: { username: cred.account_sid, password: cred.auth_token } })).data;
+  if (action === "list_contacts") return (await axios.get("https://api.hubapi.com/crm/v3/objects/contacts", { headers: { Authorization: `Bearer ${cred.access_token}` }, params: { limit: params.limit || 10 } })).data;
+  if (action === "list_customers") return (await axios.get("https://api.stripe.com/v1/customers", { auth: { username: cred.api_key, password: "" }, params: { limit: params.limit || 10 } })).data;
+  if (action === "get_invoice") return (await axios.get(`https://api.stripe.com/v1/invoices/${params.invoice_id}`, { auth: { username: cred.api_key, password: "" } })).data;
+  if (action === "create_invoice") return (await axios.post("https://api.stripe.com/v1/invoices", new URLSearchParams({ customer: params.customer_id, auto_advance: "false" }), { auth: { username: cred.api_key, password: "" } })).data;
+  if (action === "charge_customer") return (await axios.post("https://api.stripe.com/v1/payment_intents", new URLSearchParams({ amount: String(params.amount), currency: params.currency, customer: params.customer_id || "", confirm: "true", payment_method: params.payment_method || "" }), { auth: { username: cred.api_key, password: "" } })).data;
+  if (action === "list_orders") { const domain = String(cred.shop_domain).replace(/^https?:\/\//, "").replace(/\/$/, ""); return (await axios.get(`https://${domain}/admin/api/2025-10/orders.json`, { headers: { "X-Shopify-Access-Token": cred.admin_access_token }, params: { limit: params.limit || 10, status: "any" } })).data; }
+  if (action === "search_products") { const domain = String(cred.shop_domain).replace(/^https?:\/\//, "").replace(/\/$/, ""); return (await axios.get(`https://${domain}/admin/api/2025-10/products.json`, { headers: { "X-Shopify-Access-Token": cred.admin_access_token }, params: { title: params.query, limit: params.limit || 20 } })).data; }
+  if (action === "create_product") { const domain = String(cred.shop_domain).replace(/^https?:\/\//, "").replace(/\/$/, ""); return (await axios.post(`https://${domain}/admin/api/2025-10/products.json`, { product: { title: params.title, body_html: params.description || "", vendor: params.vendor, product_type: params.product_type } }, { headers: { "X-Shopify-Access-Token": cred.admin_access_token } })).data; }
+  if (action === "list_inboxes") return (await axios.get("https://api.agentmail.to/v0/inboxes", { headers: { Authorization: `Bearer ${cred.api_key}` }, params: { limit: params.limit || 10 } })).data;
+  if (action === "create_inbox") return (await axios.post("https://api.agentmail.to/v0/inboxes", { username: params.username, display_name: params.display_name }, { headers: { Authorization: `Bearer ${cred.api_key}` } })).data;
+  if (action === "list_messages") return (await axios.get(`https://api.agentmail.to/v0/inboxes/${params.inbox_id}/messages`, { headers: { Authorization: `Bearer ${cred.api_key}` }, params: { limit: params.limit || 20 } })).data;
+  if (action === "get_message") return (await axios.get(`https://api.agentmail.to/v0/inboxes/${params.inbox_id}/messages/${params.message_id}`, { headers: { Authorization: `Bearer ${cred.api_key}` } })).data;
+  if (action === "send_message") return (await axios.post(`https://api.agentmail.to/v0/inboxes/${params.inbox_id}/messages/send`, { to: params.to, subject: params.subject, text: params.text || params.body || "" }, { headers: { Authorization: `Bearer ${cred.api_key}` } })).data;
+  if (action === "reply_to_message") return (await axios.post(`https://api.agentmail.to/v0/inboxes/${params.inbox_id}/messages/${params.message_id}/reply`, { text: params.text || params.body || "" }, { headers: { Authorization: `Bearer ${cred.api_key}` } })).data;
+  if (action === "get_business_profile") return (await axios.get(`https://graph.facebook.com/v23.0/${cred.phone_number_id}/whatsapp_business_profile`, { headers: { Authorization: `Bearer ${cred.access_token}` }, params: { fields: "about,address,description,email,profile_picture_url,websites,vertical" } })).data;
+  throw new Error(`Unknown API-key plugin action: ${action}`);
 }
 
 async function last30daysAction(action, params = {}) {
@@ -118,12 +146,36 @@ async function last30daysAction(action, params = {}) {
   return { topic, output: stdout.trim() };
 }
 
-const HANDLERS = { gmail: gmailAction, gcal: calendarAction, google_calendar: calendarAction, slack: slackAction, github: githubAction, notion: notionAction };
+const HANDLERS = { gmail: gmailAction, gcal: calendarAction, google_calendar: calendarAction, slack: slackAction, github: githubAction, notion: notionAction, agentmail: apiKeyAction, discord: apiKeyAction, telegram: apiKeyAction, whatsapp: apiKeyAction, twilio: apiKeyAction, hubspot: apiKeyAction, stripe: apiKeyAction, shopify: apiKeyAction };
 
-export const IRREVERSIBLE_ACTIONS = new Set(["send_email", "send_message", "create_event", "update_event", "create_page", "edit_file"]);
+export const IRREVERSIBLE_ACTIONS = new Set(Object.values(TOOL_REGISTRY).flatMap((plugin) => Object.entries(plugin.actions).filter(([, definition]) => definition.risk !== "safe").map(([name]) => name)));
+
+async function canUsePlugin(agentId, pluginId) {
+  pluginId = normalizePluginId(pluginId);
+  if (pluginId === "files" || pluginId === "last30days") return { ok: true };
+  const { data: agent, error } = await supabaseAdmin.from("agents")
+    .select("status,allowed_plugins").eq("id", agentId).single();
+  if (error || !agent) return { ok: false, error: "Agent configuration could not be loaded" };
+  if (agent.status !== "active") return { ok: false, error: "This agent is paused and cannot use tools" };
+  const allowed = (agent.allowed_plugins || []).map(normalizePluginId);
+  if (!allowed.includes(pluginId)) {
+    return { ok: false, error: `This agent is not permitted to use the '${pluginId}' plugin` };
+  }
+  return { ok: true };
+}
 
 export async function runPluginAction({ userId, agentId, taskId, pluginId, action, params }) {
   try {
+    pluginId = normalizePluginId(pluginId);
+    const permission = await canUsePlugin(agentId, pluginId);
+    if (!permission.ok) {
+      await recordActivity({ agentId, taskId, type: "tool_blocked", summary: `Blocked ${pluginId}.${action}`, detail: { plugin_id: pluginId, action, reason: permission.error }, severity: "warning" });
+      return permission;
+    }
+    const { data: agent } = await supabaseAdmin.from("agents").select("allowed_plugins").eq("id", agentId).maybeSingle();
+    const validation = validateToolCall({ plugin_id: pluginId, action, params: params || {} }, [...(agent?.allowed_plugins || []), "files", "last30days"]);
+    if (!validation.ok) return { ok: false, error: validation.error };
+    await recordActivity({ agentId, taskId, type: "tool_started", summary: `Running ${pluginId}.${action}`, detail: { plugin_id: pluginId, action, risk: getToolDefinition(pluginId, action)?.action.risk } });
     let data;
     if (pluginId === "files") data = (await runFileTool({ userId, agentId, action, params })).data;
     else if (pluginId === "last30days") data = await last30daysAction(action, params);
@@ -135,10 +187,12 @@ export async function runPluginAction({ userId, agentId, taskId, pluginId, actio
       data = await handler(cred, action, params || {});
     }
     await supabaseAdmin.from("action_log").insert({ agent_id: agentId, task_id: taskId, action: `${pluginId}.${action}`, params, result: data });
+    await recordActivity({ agentId, taskId, type: "tool_completed", summary: `Completed ${pluginId}.${action}`, detail: { plugin_id: pluginId, action } });
     return { ok: true, data };
   } catch (err) {
     const errMsg = err.response?.data?.error?.message || err.response?.data?.error || err.message;
     await supabaseAdmin.from("action_log").insert({ agent_id: agentId, task_id: taskId, action: `${pluginId}.${action}`, params, result: { error: errMsg } });
+    await recordActivity({ agentId, taskId, type: "tool_failed", summary: `${pluginId}.${action} failed`, detail: { plugin_id: pluginId, action, message: String(errMsg).slice(0, 500) }, severity: "error" });
     return { ok: false, error: errMsg };
   }
 }

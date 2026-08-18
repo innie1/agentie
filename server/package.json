@@ -6,13 +6,18 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node src/index.js"
+    "dev": "node src/index.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
     "axios": "^1.7.7",
     "cors": "^2.8.5",
+    "docx": "^9.5.1",
     "dotenv": "^16.4.5",
-    "express": "^4.21.1"
+    "exceljs": "^4.4.0",
+    "express": "^4.21.1",
+    "pdf-lib": "^1.17.1",
+    "pptxgenjs": "^3.12.0"
   }
 }

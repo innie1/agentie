@@ -3,7 +3,9 @@
 // Teach Mode (Recording), Trigger Matching, Dynamic Adaptation & Replay Learning
 // ============================================================================
 
+import crypto from 'node:crypto';
 import { supabaseAdmin } from '../supabaseClient.js';
+import { validateToolCall } from '../connectors/manifest.js';
 
 // In-memory active recording sessions during teach mode
 const activeRecordings = new Map();
@@ -64,24 +66,35 @@ export function parsePlainScheduleToCron(input) {
 /**
  * Start a Teach Mode recording session for an agent
  */
-export function startRecordingSession(agentId) {
-    const sessionId = 'rec_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+export async function startRecordingSession(agentId, userId) {
+    const sessionId = crypto.randomUUID();
     const session = {
         id: sessionId,
+        user_id: String(userId),
         agent_id: agentId,
         started_at: new Date().toISOString(),
         steps: []
     };
     activeRecordings.set(sessionId, session);
+    const { data } = await supabaseAdmin.from('routine_recording_sessions').insert({ id: sessionId, user_id: String(userId), agent_id: agentId, steps: [] }).select().maybeSingle();
+    if (data) activeRecordings.set(sessionId, data);
     return session;
 }
 
 /**
  * Capture a plugin action during active Teach Mode recording
  */
-export function captureSessionStep(sessionId, { plugin_id, action, params = {}, screenshot = null }) {
-    const session = activeRecordings.get(sessionId);
+export async function captureSessionStep(sessionId, userId, { plugin_id, action, params = {}, screenshot = null }) {
+    let session = activeRecordings.get(sessionId);
+    if (!session) {
+        const { data } = await supabaseAdmin.from('routine_recording_sessions').select('*').eq('id', sessionId).eq('user_id', String(userId)).eq('status', 'recording').maybeSingle();
+        session = data;
+    }
     if (!session) throw new Error(`Active recording session '${sessionId}' not found.`);
+    const { data: agent } = await supabaseAdmin.from('agents').select('allowed_plugins').eq('id', session.agent_id).eq('user_id', userId).maybeSingle();
+    if (!agent) throw new Error('Recording agent not found.');
+    const validation = validateToolCall({ plugin_id, action, params }, [...(agent.allowed_plugins || []), 'files', 'last30days']);
+    if (!validation.ok) throw new Error(validation.error);
 
     const stepIndex = session.steps.length + 1;
     const dynamicKeys = [];
@@ -106,14 +119,20 @@ export function captureSessionStep(sessionId, { plugin_id, action, params = {}, 
     };
 
     session.steps.push(step);
+    activeRecordings.set(sessionId, session);
+    await supabaseAdmin.from('routine_recording_sessions').update({ steps: session.steps, updated_at: new Date().toISOString() }).eq('id', sessionId).eq('user_id', String(userId));
     return step;
 }
 
 /**
  * Save the recorded steps as a permanent Routine in Supabase
  */
-export async function saveRecordingSession(sessionId, { name, trigger_patterns = [], schedule_input = null }) {
-    const session = activeRecordings.get(sessionId);
+export async function saveRecordingSession(sessionId, userId, { name, trigger_patterns = [], schedule_input = null, timezone = 'UTC', event_triggers = [] }) {
+    let session = activeRecordings.get(sessionId);
+    if (!session) {
+        const { data } = await supabaseAdmin.from('routine_recording_sessions').select('*').eq('id', sessionId).eq('user_id', String(userId)).eq('status', 'recording').maybeSingle();
+        session = data;
+    }
     if (!session) throw new Error(`Recording session '${sessionId}' not found.`);
 
     if (session.steps.length === 0) {
@@ -138,6 +157,8 @@ export async function saveRecordingSession(sessionId, { name, trigger_patterns =
             trigger_pattern: triggers,
             schedule: cron,
             dynamic_fields: {},
+            timezone,
+            event_triggers,
             success_count: 0,
             status: 'active'
         })
@@ -146,6 +167,7 @@ export async function saveRecordingSession(sessionId, { name, trigger_patterns =
 
     activeRecordings.delete(sessionId);
     if (error) throw new Error(`Failed to save routine: ${error.message}`);
+    await supabaseAdmin.from('routine_recording_sessions').update({ status: 'saved', updated_at: new Date().toISOString() }).eq('id', sessionId).eq('user_id', String(userId));
     return newRoutine;
 }
 

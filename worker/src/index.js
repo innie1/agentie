@@ -80,7 +80,12 @@ app.listen(PORT, "0.0.0.0", () => console.log(`[worker] enqueue endpoint listeni
 
 const bullWorker = startWorker(async ({ taskId }) => {
   console.log(`[worker] picked up task ${taskId}`);
-  await runTask(taskId);
+  try {
+    await runTask(taskId);
+  } catch (error) {
+    await supabaseAdmin.from("tasks").update({ status: "pending", lease_token: null, lease_expires_at: null, updated_at: new Date().toISOString() }).eq("id", taskId).eq("status", "in_progress");
+    throw error;
+  }
   console.log(`[worker] finished task ${taskId}`);
 });
 
@@ -97,6 +102,7 @@ bullWorker.on("failed", async (job, err) => {
 });
 
 async function recoverPendingTasks() {
+  await supabaseAdmin.from("tasks").update({ status: "pending", lease_token: null, lease_expires_at: null, updated_at: new Date().toISOString() }).eq("status", "in_progress").lt("lease_expires_at", new Date().toISOString());
   const { data: pending } = await supabaseAdmin.from("tasks").select("id").eq("status", "pending");
   for (const t of pending || []) await agentTaskQueue.add("run-task", { taskId: t.id });
   if (pending?.length) console.log(`[worker] re-enqueued ${pending.length} pending task(s) on boot`);

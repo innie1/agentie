@@ -1,16 +1,16 @@
 import axios from "axios";
-import { getModelForRole } from "./modelConfig.js";
-
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const FAST_MODEL = process.env.FAST_CHAT_MODEL || "google/gemini-2.5-flash-lite";
 const SAFE_FAST_FALLBACK = "google/gemini-2.5-flash";
 
 const RESPONSE_STYLE = `
 Write like a polished conversational AI, not like a document generator.
-Use short, natural paragraphs with generous spacing.
+Use short, natural paragraphs with compact, comfortable spacing.
 For longer answers, organize information into a few clear sections, but do not overuse headings.
 Prefer simple paragraphs and short bullet lists when they improve scanning.
 Do not use Markdown heading markers (#, ##, ###) for ordinary sections.
 Do not use decorative separators, repeated asterisks, or Markdown symbols to create visual spacing.
+Do not emit HTML, inline styles, or layout markup.
 Do not cram many ideas into one paragraph.
 Use tables only when a real comparison or structured dataset makes a table clearly easier to understand.
 For long explanations, introduce the answer briefly, explain the important points in a comfortable order, and finish with a practical next step when useful.
@@ -22,11 +22,10 @@ Keep the tone natural and readable even when the personality is detailed or enth
  * If the model catalog contains a model the OpenRouter key cannot use, retry
  * once with the known-good fast fallback instead of returning Fast Chat failed.
  */
-export async function fastChat({ agent, message, history = [] }) {
-  const configuredModel = await getModelForRole("fast");
+export async function fastChat({ agent, message, history = [], maxTokens = 350, guidance = "" }) {
   const baseSystem = agent?.system_prompt ||
     "You are Agentie, a helpful AI assistant. Answer naturally, clearly, and concisely. Do not pretend to have completed actions you have not completed.";
-  const system = `${baseSystem}\n\n${RESPONSE_STYLE}`;
+  const system = `${baseSystem}\n\n${RESPONSE_STYLE}${guidance ? `\n\nCURRENT RESPONSE GUIDANCE:\n${guidance}` : ""}`;
 
   const safeHistory = Array.isArray(history)
     ? history
@@ -40,15 +39,15 @@ export async function fastChat({ agent, message, history = [] }) {
       ...safeHistory,
       { role: "user", content: message },
     ],
-    max_tokens: 700,
-    temperature: 0.5,
+    max_tokens: Math.max(80, Math.min(Number(maxTokens) || 350, 500)),
+    temperature: 0.35,
   };
 
   const request = (model) => axios.post(
     OPENROUTER_URL,
     { ...payload, model },
     {
-      timeout: 30000,
+      timeout: 18000,
       headers: {
         Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
         "Content-Type": "application/json",
@@ -59,7 +58,7 @@ export async function fastChat({ agent, message, history = [] }) {
   );
 
   let response;
-  let model = configuredModel || SAFE_FAST_FALLBACK;
+  let model = FAST_MODEL;
   try {
     response = await request(model);
   } catch (err) {

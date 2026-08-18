@@ -15,14 +15,28 @@ import routinesRouter from './routes/routines.js';
 import tokensRouter from './routes/tokens.js';
 import systemRouter from './routes/system.js';
 import filesRouter from './routes/files.js';
+import summariesRouter from './routes/summaries.js';
+import conversationsRouter from './routes/conversations.js';
+import activityRouter from './routes/activity.js';
+import toolManifestRouter from './routes/toolManifest.js';
+import webhooksRouter from './routes/webhooks.js';
+import memoryRouter from './routes/memory.js';
 import { cronScheduler } from './services/cronScheduler.js';
 import { refreshModelsCatalog } from './services/modelCatalogService.js';
+import { rateLimit } from './lib/rateLimit.js';
 
 const app = express();
 const PORT = process.env.PORT || process.env.SERVER_PORT || 4000;
-app.use(cors());
+const configuredOrigins = [...new Set([process.env.APP_URL, ...String(process.env.CORS_ORIGINS || '').split(',')].map((value) => String(value || '').trim().replace(/\/$/, '')).filter(Boolean))];
+const localOrigin = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/;
+app.use(cors({ origin(origin, callback) {
+  if (!origin || configuredOrigins.includes(origin.replace(/\/$/, '')) || (process.env.NODE_ENV !== 'production' && localOrigin.test(origin))) return callback(null, true);
+  callback(new Error('Origin is not allowed by CORS'));
+}, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
+app.use('/api', rateLimit({ windowMs: 60_000, max: Number(process.env.API_RATE_LIMIT || 180) }));
 app.get("/api/plugins/callback", oauthCallbackHandler);
+app.use("/api/webhooks", webhooksRouter);
 app.use("/api/plugins", requireAuth, pluginConnectionCompatRouter);
 app.use("/api/plugins", requireAuth, pluginsRouter);
 app.use("/api/agents", requireAuth, agentsRouter);
@@ -36,6 +50,11 @@ app.use("/api/routines", requireAuth, routinesRouter);
 app.use("/api/tokens", requireAuth, tokensRouter);
 app.use("/api/system", requireAuth, systemRouter);
 app.use("/api/files", requireAuth, filesRouter);
+app.use("/api/summaries", requireAuth, summariesRouter);
+app.use("/api/conversations", requireAuth, conversationsRouter);
+app.use("/api/activity", requireAuth, activityRouter);
+app.use("/api/memory", requireAuth, memoryRouter);
+app.use("/api/tools", requireAuth, toolManifestRouter);
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'Agentie Runtime Engine & AI Brain', openrouter_configured: !!process.env.OPENROUTER_API_KEY, time: new Date().toISOString() }));
 
 app.listen(PORT, async () => {

@@ -31,6 +31,31 @@ router.get("/", async (req, res) => {
   res.json({ routines: data });
 });
 
+// Create a routine from the existing editor. Teach-mode recording remains
+// available for captured demonstrations, while this path persists manually
+// entered steps through the same durable routines table.
+router.post("/", async (req, res) => {
+  const { agent_id, name, description, instruction, steps, trigger_pattern, schedule_input, schedule, status, timezone } = req.body || {};
+  if (!agent_id || !String(name || "").trim()) return res.status(400).json({ error: "agent_id and name are required" });
+  if (!(await assertOwnsAgent(req.user.id, agent_id))) return res.status(404).json({ error: "Agent not found" });
+  const parsed = schedule_input ? parsePlainScheduleToCron(schedule_input) : { cron: schedule || null, human: schedule_input || null };
+  const cleanSteps = Array.isArray(steps) ? steps.filter(step => step?.plugin_id && step?.action).slice(0, 50) : [];
+  const { data, error } = await supabaseAdmin.from("routines").insert({
+    agent_id,
+    name: String(name).trim().slice(0, 160),
+    description: String(description || instruction || "").trim().slice(0, 1000),
+    steps: cleanSteps,
+    trigger_pattern: Array.isArray(trigger_pattern) ? trigger_pattern.map(String).slice(0, 20) : [],
+    schedule: parsed.cron,
+    dynamic_fields: [],
+    parameters: { schedule_human: parsed.human || schedule_input || null, instruction: String(instruction || "").trim() },
+    timezone: timezone || "UTC",
+    status: status === "disabled" ? "disabled" : "active",
+  }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json({ routine: data });
+});
+
 // POST /api/routines/parse-schedule  { input: "every day at 1pm" }
 router.post("/parse-schedule", (req, res) => {
   const { input } = req.body;
@@ -45,18 +70,18 @@ router.post("/record/start", async (req, res) => {
   if (!agent_id) return res.status(400).json({ error: "agent_id is required" });
   if (!(await assertOwnsAgent(req.user.id, agent_id))) return res.status(404).json({ error: "Agent not found" });
 
-  const session = startRecordingSession(agent_id);
+  const session = await startRecordingSession(agent_id, req.user.id);
   res.status(201).json({ session });
 });
 
 // POST /api/routines/record/step  { session_id, plugin_id, action, params, screenshot? }
-router.post("/record/step", (req, res) => {
+router.post("/record/step", async (req, res) => {
   const { session_id, plugin_id, action, params, screenshot } = req.body;
   if (!session_id || !plugin_id || !action) {
     return res.status(400).json({ error: "session_id, plugin_id, and action are required" });
   }
   try {
-    const step = captureSessionStep(session_id, { plugin_id, action, params, screenshot });
+    const step = await captureSessionStep(session_id, req.user.id, { plugin_id, action, params, screenshot });
     res.status(201).json({ step });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -65,11 +90,11 @@ router.post("/record/step", (req, res) => {
 
 // POST /api/routines/record/save  { session_id, name, trigger_patterns?, schedule_input? }
 router.post("/record/save", async (req, res) => {
-  const { session_id, name, trigger_patterns, schedule_input } = req.body;
+  const { session_id, name, trigger_patterns, schedule_input, timezone, event_triggers } = req.body;
   if (!session_id || !name) return res.status(400).json({ error: "session_id and name are required" });
 
   try {
-    const routine = await saveRecordingSession(session_id, { name, trigger_patterns, schedule_input });
+    const routine = await saveRecordingSession(session_id, req.user.id, { name, trigger_patterns, schedule_input, timezone, event_triggers });
     res.status(201).json({ routine });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -86,12 +111,13 @@ router.patch("/:id", async (req, res) => {
     return res.status(404).json({ error: "Routine not found" });
   }
 
-  const allowedFields = ["name", "trigger_pattern", "schedule", "status", "steps", "dynamic_fields"];
+  const allowedFields = ["name", "description", "trigger_pattern", "schedule", "status", "steps", "dynamic_fields", "parameters", "timezone", "event_triggers"];
   const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowedFields.includes(k)));
   updates.updated_at = new Date().toISOString();
 
   const { data, error } = await supabaseAdmin.from("routines").update(updates).eq("id", id).select().single();
   if (error) return res.status(500).json({ error: error.message });
+
   res.json({ routine: data });
 });
 
@@ -120,13 +146,16 @@ router.post("/:id/run", async (req, res) => {
     .insert({
       user_id: req.user.id,
       agent_id: routine.agent_id,
-      instruction: routine.name,
+      instruction: `Execute routine "${routine.name}": ${routine.parameters?.instruction || routine.description || routine.name}`,
       status: "pending",
-      source: "scheduled",
+      source: "manual",
+      context: { routine_id: routine.id, routine_name: routine.name, timezone: routine.timezone || "UTC" },
     })
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
+
+  await supabaseAdmin.from("routine_runs").insert({ routine_id: routine.id, task_id: task.id, trigger_type: "manual", trigger_key: `manual:${task.id}`, status: "queued", input: req.body || {} });
 
   try {
     const axios = (await import("axios")).default;

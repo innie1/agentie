@@ -33,7 +33,7 @@ router.get("/", async (req, res) => {
 
 router.post("/", async (req, res) => {
   const userId = req.user.id;
-  const { name, role, goal, allowed_plugins, character: suppliedCharacter } = req.body;
+  const { name, name_source, role, goal, allowed_plugins, character: suppliedCharacter } = req.body;
   if (!role && !goal) return res.status(400).json({ error: "Describe what this agent is responsible for in natural language." });
 
   const connectedPlugins = await getConnectedPluginIds(userId);
@@ -42,11 +42,11 @@ router.post("/", async (req, res) => {
   const { data: existingAgents } = await supabaseAdmin.from("agents").select("name").eq("user_id", userId);
   const takenNames = new Set((existingAgents || []).map((a) => a.name.toLowerCase()));
   let finalName = name;
-  let nameSource = "user";
+  let nameSource = name_source === "auto" ? "auto" : "user";
 
   if (!finalName) {
     finalName = await generateAgentName({ role, goal, taken: takenNames });
-    nameSource = "brain";
+    nameSource = "auto";
   } else if (takenNames.has(finalName.toLowerCase())) {
     return res.status(409).json({ error: `You already have an agent named "${finalName}". Pick another name.` });
   }
@@ -107,7 +107,7 @@ router.post("/", async (req, res) => {
 router.patch("/:id", async (req, res) => {
   const userId = req.user.id;
   const { id } = req.params;
-  const allowedFields = ["name", "role", "goal", "system_prompt", "character", "tags", "allowed_plugins", "auto_approved_actions", "allowed_handoff_agents", "status"];
+  const allowedFields = ["name", "name_source", "role", "goal", "system_prompt", "character", "tags", "allowed_plugins", "auto_approved_actions", "allowed_handoff_agents", "status"];
   const updates = Object.fromEntries(Object.entries(req.body).filter(([key]) => allowedFields.includes(key)));
 
   if (Array.isArray(updates.allowed_plugins)) {

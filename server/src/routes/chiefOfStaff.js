@@ -46,14 +46,17 @@ router.post("/route", async (req, res) => {
   if (!message || !currentAgentId) return res.status(400).json({ error: "message and current_agent_id are required" });
   try {
     const [currentAgent, roster] = await Promise.all([getAgent(currentAgentId, userId), getRoster(userId)]);
-    const routing = await routeToBestAgent({ message, currentAgent, roster });
+    const explicit = new Set(Array.isArray(currentAgent.allowed_handoff_agents) ? currentAgent.allowed_handoff_agents : []);
+    const eligibleRoster = explicit.size ? roster.filter(agent => agent.id === currentAgent.id || explicit.has(agent.id)) : roster;
+    const routing = await routeToBestAgent({ message, currentAgent, roster: eligibleRoster });
     if (!routing.routed) return res.json({ routed: false, reason: routing.reason });
     const target = routing.agent;
     const workerUrl = process.env.WORKER_URL || "https://agentie-production.up.railway.app";
     const instruction = `The user asked this through ${currentAgent.name}:\n\n${message}\n\nHandle it according to your role (${target.role}) and available tools. Return a concise result that ${currentAgent.name} can relay to the user.`;
     const { data: task, error } = await supabaseAdmin.from("tasks").insert({ user_id: userId, agent_id: target.id, instruction, status: "pending", source: "handoff", context: { delegated_by_agent_id: currentAgent.id, delegated_by_agent_name: currentAgent.name, routing_method: routing.method, routing_confidence: routing.confidence, original_user_message: message } }).select().single();
     if (error) return res.status(500).json({ error: error.message });
-    const { data: handoff } = await supabaseAdmin.from("task_handoffs").insert({ from_agent_id: currentAgent.id, to_agent_id: target.id, task_id: task.id, note: routing.reason || `Routed by ${currentAgent.name} to ${target.name}.` }).select().single();
+    const handoffNote = routing.reason || `Routed by ${currentAgent.name} to ${target.name}.`;
+    const { data: handoff } = await supabaseAdmin.from("task_handoffs").insert({ from_agent_id: currentAgent.id, to_agent_id: target.id, task_id: task.id, note: handoffNote, context_summary: handoffNote }).select().single();
     try { await axios.post(`${workerUrl}/enqueue`, { taskId: task.id }); } catch (err) { console.error("[workforce-routing] enqueue failed:", err.message); }
     res.status(201).json({ routed: true, from_agent: currentAgent, to_agent: target, task, handoff, confidence: routing.confidence, message: `${currentAgent.name} handed this to ${target.name}.` });
   } catch (err) {
@@ -70,7 +73,8 @@ router.post("/plan", async (req, res) => {
   try {
     const manager = await getAgent(managerAgentId, userId);
     if (!roleHasManagementCapability(manager.role)) return res.status(403).json({ error: `${manager.name} does not have workforce-management capability` });
-    const workers = (await getRoster(userId)).filter(a => a.id !== manager.id && a.status === "active");
+    const explicit = new Set(Array.isArray(manager.allowed_handoff_agents) ? manager.allowed_handoff_agents : []);
+    const workers = (await getRoster(userId)).filter(a => a.id !== manager.id && a.status === "active" && (explicit.size === 0 || explicit.has(a.id)));
     const prompt = [`You are ${manager.name}, an AI employee whose role is ${manager.role}.`, "Coordinate the user's AI workforce.", "Return ONLY valid JSON:", '{"summary":"...","assignments":[{"agent_id":"...","reason":"...","instruction":"..."}],"new_agents":[{"name":"...","role":"...","goal":"..."}],"needs_user_approval":true}', "Never invent agent IDs. Prefer existing agents. Do not execute actions.", "OBJECTIVE:", objective, "WORKFORCE:", JSON.stringify(workers.map(a => ({ id: a.id, name: a.name, role: a.role, goal: a.goal })) )].join("\n");
     const { text, model } = await fastChat({ agent: manager, message: prompt, history: [] });
     const plan = parsePlan(text);
@@ -101,7 +105,8 @@ router.post("/delegate", async (req, res) => {
     if (explicit.size && !explicit.has(assignment.agent_id)) continue;
     const { data: task, error } = await supabaseAdmin.from("tasks").insert({ user_id: userId, agent_id: assignment.agent_id, instruction: String(assignment.instruction).trim(), status: "pending", source: "handoff", context: { delegated_by_agent_id: manager.id, delegated_by_agent_name: manager.name, approved_at: new Date().toISOString() } }).select().single();
     if (error) return res.status(500).json({ error: error.message });
-    await supabaseAdmin.from("task_handoffs").insert({ from_agent_id: manager.id, to_agent_id: assignment.agent_id, task_id: task.id, note: assignment.reason || null });
+    const handoffNote = assignment.reason || String(assignment.instruction).trim();
+    await supabaseAdmin.from("task_handoffs").insert({ from_agent_id: manager.id, to_agent_id: assignment.agent_id, task_id: task.id, note: handoffNote, context_summary: handoffNote });
     try { await axios.post(`${workerUrl}/enqueue`, { taskId: task.id }); } catch (err) { console.error("[workforce-management] enqueue failed:", err.message); }
     created.push(task);
   }
