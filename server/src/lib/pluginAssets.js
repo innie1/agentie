@@ -29,6 +29,7 @@ export const PLUGIN_ASSETS = {
   stripe: { icon_url: "https://cdn.simpleicons.org/stripe", icon_alt: "Stripe" },
   shopify: { icon_url: "https://cdn.simpleicons.org/shopify", icon_alt: "Shopify" },
   aws: { icon_url: "https://cdn.simpleicons.org/amazonaws", icon_alt: "AWS" },
+  agentmail: { icon_url: "https://cdn.simpleicons.org/maildotru", icon_alt: "AgentMail" },
 };
 
 export function withPluginAsset(plugin) {
