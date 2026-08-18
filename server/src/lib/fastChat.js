@@ -4,6 +4,19 @@ import { getModelForRole } from "./modelConfig.js";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const SAFE_FAST_FALLBACK = "google/gemini-2.5-flash";
 
+const RESPONSE_STYLE = `
+Write like a polished conversational AI, not like a document generator.
+Use short, natural paragraphs with generous spacing.
+For longer answers, organize information into a few clear sections, but do not overuse headings.
+Prefer simple paragraphs and short bullet lists when they improve scanning.
+Do not use Markdown heading markers (#, ##, ###) for ordinary sections.
+Do not use decorative separators, repeated asterisks, or Markdown symbols to create visual spacing.
+Do not cram many ideas into one paragraph.
+Use tables only when a real comparison or structured dataset makes a table clearly easier to understand.
+For long explanations, introduce the answer briefly, explain the important points in a comfortable order, and finish with a practical next step when useful.
+Keep the tone natural and readable even when the personality is detailed or enthusiastic.
+`;
+
 /**
  * Fast conversational path. Ordinary conversation must never create a task.
  * If the model catalog contains a model the OpenRouter key cannot use, retry
@@ -11,8 +24,9 @@ const SAFE_FAST_FALLBACK = "google/gemini-2.5-flash";
  */
 export async function fastChat({ agent, message, history = [] }) {
   const configuredModel = await getModelForRole("fast");
-  const system = agent?.system_prompt ||
+  const baseSystem = agent?.system_prompt ||
     "You are Agentie, a helpful AI assistant. Answer naturally, clearly, and concisely. Do not pretend to have completed actions you have not completed.";
+  const system = `${baseSystem}\n\n${RESPONSE_STYLE}`;
 
   const safeHistory = Array.isArray(history)
     ? history
@@ -49,8 +63,6 @@ export async function fastChat({ agent, message, history = [] }) {
   try {
     response = await request(model);
   } catch (err) {
-    // OpenRouter 403 commonly means the selected model is not available to
-    // this API key. Retry with the known-good fast model before failing chat.
     if (err.response?.status === 403 && model !== SAFE_FAST_FALLBACK) {
       console.warn(`[fastChat] model ${model} returned 403; retrying with ${SAFE_FAST_FALLBACK}`);
       model = SAFE_FAST_FALLBACK;
@@ -65,10 +77,6 @@ export async function fastChat({ agent, message, history = [] }) {
   return { text, model };
 }
 
-/**
- * Conservative task boundary: explicit action requests become tasks.
- * Everything else is ordinary conversation and must stay out of the tasks table.
- */
 export function isFastChatMessage(message = "") {
   const text = message.trim();
   if (!text || text.length > 4000) return false;
