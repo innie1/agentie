@@ -4968,25 +4968,60 @@
                         }
                         const agentId = currentAgent.backend_id || currentAgent.id;
 
-                        const { data: task, error } = await sb
-                            .from("tasks")
-                            .insert({
-                                user_id: userId,
-                                agent_id: agentId,
-                                instruction: rawText,
-                                status: "pending"
-                            })
-                            .select()
-                            .single();
+                        let taskInsertError = null;
+                        try {
+                            const { data: task, error } = await sb
+                                .from("tasks")
+                                .insert({
+                                    user_id: userId,
+                                    agent_id: agentId,
+                                    instruction: rawText,
+                                    status: "pending"
+                                })
+                                .select()
+                                .single();
 
-                        if (error) {
-                            console.error('[Supabase task insert error]:', error);
+                            if (!error && task) {
+                                taskDispatched = true;
+                                dispatchedTaskId = task.id;
+                            } else if (error) {
+                                taskInsertError = error;
+                            }
+                        } catch (sErr) {
+                            taskInsertError = sErr;
+                        }
+
+                        // If direct Supabase insert had a schema cache miss, attempt backend API dispatch
+                        if (!taskDispatched) {
+                            try {
+                                const res = await authedFetch(agentieApiUrl('api/tasks'), {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        agent_id: agentId,
+                                        instruction: rawText
+                                    })
+                                });
+                                if (res.ok) {
+                                    const bData = await res.json();
+                                    if (bData && bData.task) {
+                                        taskDispatched = true;
+                                        dispatchedTaskId = bData.task.id;
+                                    }
+                                }
+                            } catch (bErr) {
+                                console.warn('[Backend API task dispatch fallback]:', bErr.message);
+                            }
+                        }
+
+                        if (!taskDispatched) {
+                            console.error('[Supabase task insert error]:', taskInsertError);
                             currentAgent.isWorking = false;
-                            const errText = error.message || error.details || error.hint || JSON.stringify(error);
+                            const errText = taskInsertError?.message || taskInsertError?.details || taskInsertError?.hint || (typeof taskInsertError === 'string' ? taskInsertError : 'Database error creating task');
                             currentAgent.messages.push({
                                 sender: 'agent',
                                 result_type: 'failure',
-                                result_payload: { error: errText, code: error.code },
+                                result_payload: { error: errText, code: taskInsertError?.code },
                                 text: `Task submission error: ${errText}`
                             });
                             renderSidebar();
@@ -4997,11 +5032,8 @@
                             return;
                         }
 
-                        if (task) {
-                            taskDispatched = true;
-                            dispatchedTaskId = task.id;
-
-                            // Real task is now inserted in Supabase tasks table
+                        if (taskDispatched && dispatchedTaskId) {
+                            // Real task is now queued for worker execution with live Realtime tracking
                             currentAgent.isWorking = true;
                             renderSidebar();
                             if (dom.topAgentAvatarWrap) {
@@ -5009,7 +5041,7 @@
                             }
                             renderMainWorkspace(currentAgent);
 
-                            // Backup polling on Supabase tasks table
+                            // Backup polling on Supabase tasks table & API
                             let pollCount = 0;
                             const pollInterval = setInterval(async () => {
                                 pollCount++;

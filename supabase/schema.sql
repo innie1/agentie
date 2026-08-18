@@ -170,34 +170,48 @@ CREATE INDEX IF NOT EXISTS idx_token_usage_agent_id ON token_usage(agent_id);
 CREATE INDEX IF NOT EXISTS idx_token_usage_user_created ON token_usage(user_id, created_at);
 
 -- ============================================================================
--- 12. SUPABASE REALTIME & DATABASE WEBHOOK SETUP FOR RAILWAY WORKER
+-- 12. PERMISSIONS, ROW LEVEL SECURITY & SCHEMA CACHE RELOAD
 -- ============================================================================
 
--- A. Enable Supabase Realtime for instant UI status push
+-- Grant schema and table access to all standard Supabase roles
+GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO postgres, anon, authenticated, service_role;
+
+-- Enable RLS and permissive policies for tasks and agents
+ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "tasks_access_policy" ON tasks;
+CREATE POLICY "tasks_access_policy" ON tasks FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE agents ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "agents_access_policy" ON agents;
+CREATE POLICY "agents_access_policy" ON agents FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE plugins ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "plugins_access_policy" ON plugins;
+CREATE POLICY "plugins_access_policy" ON plugins FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE user_plugins ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "user_plugins_access_policy" ON user_plugins;
+CREATE POLICY "user_plugins_access_policy" ON user_plugins FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE routines ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "routines_access_policy" ON routines;
+CREATE POLICY "routines_access_policy" ON routines FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE agent_memory ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "agent_memory_access_policy" ON agent_memory;
+CREATE POLICY "agent_memory_access_policy" ON agent_memory FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE token_usage ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "token_usage_access_policy" ON token_usage;
+CREATE POLICY "token_usage_access_policy" ON token_usage FOR ALL USING (true) WITH CHECK (true);
+
+-- Enable Supabase Realtime for instant UI status push
 ALTER PUBLICATION supabase_realtime ADD TABLE tasks;
 ALTER PUBLICATION supabase_realtime ADD TABLE agent_memory;
 
--- B. Webhook Trigger Setup (Alternative to Supabase Dashboard Webhooks)
--- Trigger: Whenever a new task is inserted with status = 'pending' -> POST to Railway Worker /enqueue
-/*
-create extension if not exists "pg_net";
-
-create or replace function notify_railway_worker_task_pending()
-returns trigger as $$
-begin
-  if new.status = 'pending' then
-    perform net.http_post(
-      url := 'https://agentie-production.up.railway.app/enqueue',
-      headers := '{"Content-Type": "application/json"}'::jsonb,
-      body := json_build_object('taskId', new.id, 'record', row_to_json(new))::jsonb
-    );
-  end if;
-  return new;
-end;
-$$ language plpgsql;
-
-create or replace trigger trg_notify_worker_task_pending
-after insert or update of status on tasks
-for each row
-execute function notify_railway_worker_task_pending();
-*/
+-- Refresh PostgREST schema cache immediately
+NOTIFY pgrst, 'reload schema';
