@@ -3,23 +3,15 @@ import { supabaseAdmin } from "../supabaseClient.js";
 
 const MODELS_URL = "https://openrouter.ai/api/v1/models";
 
-// Fallbacks used ONLY if the live catalog fetch fails entirely (network issue,
-// OpenRouter outage) — not treated as permanently correct, just a safety net.
 const HARD_FALLBACK = {
-  fast: "openai/gpt-4o-mini",
-  reasoning: "meta-llama/llama-3.3-70b-instruct",
+  fast: "google/gemini-2.5-flash",
+  reasoning: "google/gemini-2.5-pro",
 };
 
 /**
- * Pulls OpenRouter's live catalog, filtered to models that support tool calling
- * (required — Agentie's agent loop depends on structured tool/action output),
- * then picks:
- *   - "fast": highest-throughput tool-capable model, for greetings/simple replies
- *             and intent classification
- *   - "reasoning": a strong, current tool-capable model with a large context
- *             window, for actual task planning
- * Writes the result to models_config so the worker picks it up on its next
- * cache refresh (worker/src/lib/modelConfig.js polls this table).
+ * Pull the current OpenRouter catalog and persist it using the actual
+ * models_config schema: id + tier + model_id. The previous implementation
+ * wrote a nonexistent `role` column, which made every catalog refresh fail.
  */
 export async function refreshModelsCatalog() {
   if (!process.env.OPENROUTER_API_KEY) {
@@ -41,28 +33,26 @@ export async function refreshModelsCatalog() {
 
     const fastCandidates = fastRes.data?.data || [];
     const reasoningCandidates = reasoningRes.data?.data || [];
+    const fastModel = pickFastModel(fastCandidates) || { id: HARD_FALLBACK.fast };
+    const reasoningModel = pickReasoningModel(reasoningCandidates) || { id: HARD_FALLBACK.reasoning };
+    const updatedAt = new Date().toISOString();
 
-    const fastModel = pickFastModel(fastCandidates);
-    const reasoningModel = pickReasoningModel(reasoningCandidates);
+    const updates = [
+      { id: "fast", tier: "fast", model_id: fastModel.id, updated_at: updatedAt },
+      { id: "reasoning", tier: "reasoning", model_id: reasoningModel.id, updated_at: updatedAt },
+    ];
 
-    if (!fastModel && !reasoningModel) {
-      console.warn("[modelCatalog] Live catalog returned no usable tool-calling models, keeping current models_config as-is.");
-      return { ok: false, reason: "no_candidates" };
-    }
-
-    const updates = [];
-    if (fastModel) updates.push({ role: "fast", model_id: fastModel.id, updated_at: new Date().toISOString() });
-    if (reasoningModel) updates.push({ role: "reasoning", model_id: reasoningModel.id, updated_at: new Date().toISOString() });
-
-    const { error } = await supabaseAdmin.from("models_config").upsert(updates, { onConflict: "role" });
+    const { error } = await supabaseAdmin
+      .from("models_config")
+      .upsert(updates, { onConflict: "id" });
     if (error) throw error;
 
-    console.log(`[modelCatalog] refreshed — fast: ${fastModel?.id || "(unchanged)"}, reasoning: ${reasoningModel?.id || "(unchanged)"}`);
-    return { ok: true, fast: fastModel?.id, reasoning: reasoningModel?.id };
+    console.log(`[modelCatalog] refreshed — fast: ${fastModel.id}, reasoning: ${reasoningModel.id}`);
+    return { ok: true, fast: fastModel.id, reasoning: reasoningModel.id };
   } catch (err) {
     const status = err.response?.status;
     if (status === 401) {
-      console.error("[modelCatalog] OpenRouter rejected the API key (401). Check OPENROUTER_API_KEY in both server and worker env vars.");
+      console.error("[modelCatalog] OpenRouter rejected the API key (401). Check OPENROUTER_API_KEY.");
       return { ok: false, reason: "invalid_api_key" };
     }
     console.error("[modelCatalog] catalog refresh failed, keeping existing models_config:", err.message);
@@ -71,22 +61,17 @@ export async function refreshModelsCatalog() {
 }
 
 function pickFastModel(candidates) {
-  // Prefer models with cheap+fast pricing signals, actual context, and no known
-  // "beta"/"free" instability flags for something meant to run constantly.
   const usable = candidates.filter((m) => m.context_length >= 8000 && !m.id.includes(":free"));
   return usable[0] || candidates[0] || null;
 }
 
 function pickReasoningModel(candidates) {
-  // Prefer larger context window among recently-listed tool-capable models —
-  // "newest" sort already biases toward current models over stale ones.
   const usable = candidates
     .filter((m) => m.context_length >= 32000 && !m.id.includes(":free"))
     .sort((a, b) => (b.context_length || 0) - (a.context_length || 0));
   return usable[0] || candidates[0] || null;
 }
 
-/** Does a live, cheap ping to confirm the key actually works right now. */
 export async function testOpenRouterKey() {
   if (!process.env.OPENROUTER_API_KEY) return { ok: false, reason: "no_api_key" };
   try {
