@@ -2121,7 +2121,388 @@
         }
 
         // =========================================================================
-        // AGENTIE RESPONSE FORMATS ENGINE (9 SPEC FORMATS)
+        // LIVE TIME & REALTIME CLOCK ENGINE
+        // =========================================================================
+        function updateLiveClocks() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+            const dateStr = now.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            const tzStr = (Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'Local Time') || 'Local Time';
+
+            document.querySelectorAll('.live-clock-time').forEach(el => {
+                if (el.textContent !== timeStr) el.textContent = timeStr;
+            });
+            document.querySelectorAll('.live-clock-date').forEach(el => {
+                if (el.textContent !== dateStr) el.textContent = dateStr;
+            });
+            document.querySelectorAll('.live-clock-tz').forEach(el => {
+                if (el.textContent !== tzStr) el.textContent = tzStr;
+            });
+        }
+        setInterval(updateLiveClocks, 1000);
+
+        // =========================================================================
+        // LIVE WEATHER FORECAST ENGINE
+        // =========================================================================
+        function getMockOrRealWeather(locationQuery = 'Local Area') {
+            const cleanLoc = (locationQuery || 'Local Area').trim();
+            const normalized = cleanLoc.toLowerCase();
+            
+            // City preset heuristics or fallback
+            let locTitle = cleanLoc.charAt(0).toUpperCase() + cleanLoc.slice(1);
+            let tempC = 22;
+            let condition = 'Partly Cloudy';
+            let icon = 'partly_cloudy_day';
+            let humidity = 58;
+            let wind = 14;
+            let precipitation = 10;
+            let uv = '4 Moderate';
+
+            if (normalized.includes('london')) {
+                locTitle = 'London, UK'; tempC = 18; condition = 'Passing Showers'; icon = 'rainy'; humidity = 74; wind = 22; precipitation = 65; uv = '3 Mod';
+            } else if (normalized.includes('new york') || normalized.includes('nyc')) {
+                locTitle = 'New York, USA'; tempC = 25; condition = 'Sunny & Clear'; icon = 'sunny'; humidity = 45; wind = 12; precipitation = 0; uv = '7 High';
+            } else if (normalized.includes('tokyo')) {
+                locTitle = 'Tokyo, Japan'; tempC = 27; condition = 'Humid & Bright'; icon = 'wb_sunny'; humidity = 68; wind = 9; precipitation = 5; uv = '8 Very High';
+            } else if (normalized.includes('paris')) {
+                locTitle = 'Paris, France'; tempC = 21; condition = 'Mild & Sunny'; icon = 'partly_cloudy_day'; humidity = 52; wind = 11; precipitation = 15; uv = '5 Mod';
+            } else if (normalized.includes('lagos')) {
+                locTitle = 'Lagos, Nigeria'; tempC = 30; condition = 'Tropical Warmth'; icon = 'thunderstorm'; humidity = 82; wind = 16; precipitation = 40; uv = '9 Extreme';
+            } else if (normalized.includes('san francisco') || normalized.includes('sf')) {
+                locTitle = 'San Francisco, CA'; tempC = 17; condition = 'Coastal Breeze'; icon = 'cloud'; humidity = 70; wind = 24; precipitation = 10; uv = '4 Mod';
+            } else if (normalized.includes('toronto')) {
+                locTitle = 'Toronto, Canada'; tempC = 23; condition = 'Clear Skies'; icon = 'sunny'; humidity = 50; wind = 15; precipitation = 0; uv = '6 High';
+            }
+
+            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const todayIdx = new Date().getDay();
+            const forecast = [
+                { day: 'Today', icon, tempC },
+                { day: days[(todayIdx + 1) % 7], icon: 'sunny', tempC: tempC + 1 },
+                { day: days[(todayIdx + 2) % 7], icon: 'partly_cloudy_day', tempC: tempC - 2 },
+                { day: days[(todayIdx + 3) % 7], icon: 'rainy', tempC: tempC - 3 }
+            ];
+
+            return {
+                location: locTitle,
+                tempC,
+                highC: tempC + 4,
+                lowC: Math.max(10, tempC - 5),
+                condition,
+                icon,
+                humidity,
+                wind,
+                precipitation,
+                uv,
+                forecast
+            };
+        }
+
+        // =========================================================================
+        // INTERACTIVE MINI-GAMES ARCADE ENGINE (TIC-TAC-TOE, TRIVIA, RPS, ARCADE HUB)
+        // =========================================================================
+        const TRIVIA_BANK = [
+            {
+                q: "Which AI architecture introduced the Self-Attention mechanism in 2017?",
+                options: ["Transformer", "ResNet", "LSTM", "Markov Chain"],
+                ans: 0,
+                explanation: "The Transformer architecture was introduced by Vaswani et al. in the landmark 2017 paper 'Attention Is All You Need'."
+            },
+            {
+                q: "What does API stand for in software engineering?",
+                options: ["Application Programming Interface", "Automated Protocol Integration", "Advanced Program Index", "App Pipeline Infrastructure"],
+                ans: 0,
+                explanation: "API stands for Application Programming Interface — a set of definitions and protocols for building and integrating application software."
+            },
+            {
+                q: "What is the speed of light in vacuum (approximate)?",
+                options: ["300,000 km/s", "150,000 km/s", "1,000,000 km/s", "30,000 km/s"],
+                ans: 0,
+                explanation: "The speed of light in a vacuum is approximately 299,792 km per second (about 300,000 km/s)."
+            },
+            {
+                q: "Which planet in our solar system has the highest number of confirmed moons?",
+                options: ["Saturn", "Jupiter", "Neptune", "Mars"],
+                ans: 0,
+                explanation: "Saturn currently holds the record with over 140 confirmed moons, surpassing Jupiter."
+            },
+            {
+                q: "In computing, what is the smallest unit of digital data?",
+                options: ["Bit", "Byte", "Nibble", "Pixel"],
+                ans: 0,
+                explanation: "A single binary digit (0 or 1) is called a Bit. 8 bits make a Byte."
+            }
+        ];
+
+        window.AgentieGamesState = window.AgentieGamesState || {};
+
+        function getOrInitGameState(gameId, type) {
+            if (!window.AgentieGamesState[gameId]) {
+                if (type === 'tictactoe') {
+                    window.AgentieGamesState[gameId] = {
+                        board: Array(9).fill(null),
+                        playerTurn: true, // User is X
+                        status: 'your_turn', // 'your_turn', 'agent_thinking', 'x_won', 'o_won', 'draw'
+                        scores: { user: 0, agent: 0, draws: 0 }
+                    };
+                } else if (type === 'trivia') {
+                    const qIdx = Math.floor(Math.random() * TRIVIA_BANK.length);
+                    window.AgentieGamesState[gameId] = {
+                        qIdx,
+                        selected: null,
+                        score: 0,
+                        answered: false
+                    };
+                } else if (type === 'rps') {
+                    window.AgentieGamesState[gameId] = {
+                        userChoice: null,
+                        agentChoice: null,
+                        outcome: null, // 'win', 'lose', 'draw'
+                        streak: 0,
+                        totalWon: 0
+                    };
+                }
+            }
+            return window.AgentieGamesState[gameId];
+        }
+
+        function checkTicTacToeWinner(board) {
+            const lines = [
+                [0,1,2],[3,4,5],[6,7,8],
+                [0,3,6],[1,4,7],[2,5,8],
+                [0,4,8],[2,4,6]
+            ];
+            for (const [a,b,c] of lines) {
+                if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+                    return board[a];
+                }
+            }
+            if (board.every(cell => cell !== null)) return 'draw';
+            return null;
+        }
+
+        function renderTicTacToeHtml(gameId, payload) {
+            const st = getOrInitGameState(gameId, 'tictactoe');
+            const board = st.board;
+
+            let statusText = `<span class="text-[#10A8FF]">Your turn (X)</span>`;
+            if (st.status === 'agent_thinking') statusText = `<span class="text-amber-400 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span> Agentie thinking...</span>`;
+            else if (st.status === 'x_won') statusText = `<span class="text-emerald-400 font-bold">🎉 You Won!</span>`;
+            else if (st.status === 'o_won') statusText = `<span class="text-rose-400 font-bold">🤖 Agentie Won!</span>`;
+            else if (st.status === 'draw') statusText = `<span class="text-amber-300 font-bold">🤝 It's a Draw!</span>`;
+
+            return `
+                <div class="game-card tictactoe-card space-y-3.5 p-4 rounded-2xl bg-gradient-to-br from-[#131922] via-[#0f141d] to-[#0a0d12] border border-[#10A8FF]/30 text-left shadow-lg relative overflow-hidden" data-game-id="${gameId}">
+                    <div class="absolute -right-8 -top-8 w-36 h-36 bg-[#10A8FF]/10 rounded-full blur-2xl pointer-events-none"></div>
+
+                    <!-- Header -->
+                    <div class="flex items-center justify-between border-b border-[#222e3e]/70 pb-2 relative z-10">
+                        <div class="flex items-center gap-2">
+                            <span class="material-symbols-outlined text-[19px] text-[#10A8FF]">sports_esports</span>
+                            <span class="text-[13.5px] font-bold text-white tracking-wide">Tic-Tac-Toe vs Agentie</span>
+                        </div>
+                        <div class="text-[11px] font-mono text-text-muted flex items-center gap-2">
+                            <span>You: <strong class="text-emerald-400">${st.scores.user}</strong></span>
+                            <span>AI: <strong class="text-rose-400">${st.scores.agent}</strong></span>
+                        </div>
+                    </div>
+
+                    <!-- Status Banner -->
+                    <div class="flex items-center justify-between py-0.5 text-[12px] font-medium relative z-10">
+                        <div>${statusText}</div>
+                        <div class="text-[10.5px] text-text-muted font-mono">You: X | Agentie: O</div>
+                    </div>
+
+                    <!-- 3x3 Interactive Grid -->
+                    <div class="grid grid-cols-3 gap-2 max-w-[240px] mx-auto py-1 relative z-10">
+                        ${board.map((cell, idx) => `
+                            <button class="ttt-cell h-16 rounded-xl bg-[#172230] hover:bg-[#1f2e42] border border-[#27384e] flex items-center justify-center text-[24px] font-extrabold font-mono transition-all cursor-pointer ${cell === 'X' ? 'text-[#10A8FF]' : (cell === 'O' ? 'text-amber-400' : 'text-transparent hover:border-[#10A8FF]/50')}" data-idx="${idx}" ${cell || st.status !== 'your_turn' ? 'disabled' : ''}>
+                                ${cell || '·'}
+                            </button>
+                        `).join('')}
+                    </div>
+
+                    <!-- Footer Controls -->
+                    <div class="flex items-center justify-between pt-1.5 border-t border-[#222e3e]/60 relative z-10">
+                        <button class="ttt-restart-btn px-3 py-1.5 rounded-lg bg-[#1a2533] hover:bg-[#223246] border border-[#2c3d52] text-text-muted hover:text-white text-[11.5px] font-medium transition-colors cursor-pointer flex items-center gap-1">
+                            <span class="material-symbols-outlined text-[13px]">refresh</span> Restart Board
+                        </button>
+                        <button class="game-switch-btn px-3 py-1.5 rounded-lg hover:bg-white/5 text-text-muted hover:text-white text-[11px] font-medium transition-colors cursor-pointer" data-to="trivia">
+                            Play Trivia →
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderTriviaHtml(gameId, payload) {
+            const st = getOrInitGameState(gameId, 'trivia');
+            const item = TRIVIA_BANK[st.qIdx] || TRIVIA_BANK[0];
+
+            return `
+                <div class="game-card trivia-card space-y-3.5 p-4 rounded-2xl bg-gradient-to-br from-[#161224] via-[#120e1e] to-[#0a0812] border border-purple-500/30 text-left shadow-lg relative overflow-hidden" data-game-id="${gameId}">
+                    <div class="absolute -right-8 -top-8 w-36 h-36 bg-purple-500/15 rounded-full blur-2xl pointer-events-none"></div>
+
+                    <!-- Header -->
+                    <div class="flex items-center justify-between border-b border-[#2d2242]/70 pb-2 relative z-10">
+                        <div class="flex items-center gap-2 text-purple-400">
+                            <span class="material-symbols-outlined text-[19px]">psychology</span>
+                            <span class="text-[13.5px] font-bold text-white tracking-wide">Trivia Brain Challenge</span>
+                        </div>
+                        <span class="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 font-mono font-semibold uppercase">
+                            Score: ${st.score}
+                        </span>
+                    </div>
+
+                    <!-- Question -->
+                    <div class="text-[13px] text-text-primary font-semibold leading-relaxed relative z-10">
+                        ${item.q}
+                    </div>
+
+                    <!-- 4 Option Buttons -->
+                    <div class="grid grid-cols-1 gap-2 relative z-10">
+                        ${item.options.map((opt, idx) => {
+                            let btnStyle = 'bg-[#1e172e] hover:bg-[#281f3d] border-[#31254c] text-white';
+                            if (st.answered) {
+                                if (idx === item.ans) {
+                                    btnStyle = 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 font-bold';
+                                } else if (st.selected === idx) {
+                                    btnStyle = 'bg-rose-500/20 border-rose-500/50 text-rose-300';
+                                } else {
+                                    btnStyle = 'opacity-40 bg-[#161022] border-[#221834] text-text-muted';
+                                }
+                            }
+                            return `
+                                <button class="trivia-opt-btn w-full p-2.5 rounded-xl border text-left text-[12px] font-medium transition-all flex items-center justify-between cursor-pointer ${btnStyle}" data-opt="${idx}" ${st.answered ? 'disabled' : ''}>
+                                    <span>${opt}</span>
+                                    ${st.answered && idx === item.ans ? '<span class="material-symbols-outlined text-[15px] text-emerald-400">check_circle</span>' : ''}
+                                    ${st.answered && st.selected === idx && idx !== item.ans ? '<span class="material-symbols-outlined text-[15px] text-rose-400">cancel</span>' : ''}
+                                </button>
+                            `;
+                        }).join('')}
+                    </div>
+
+                    ${st.answered ? `
+                        <div class="p-2.5 rounded-xl bg-[#201830] border border-purple-500/20 text-[11.5px] text-purple-200/90 leading-relaxed relative z-10">
+                            <strong>Did you know?</strong> ${item.explanation}
+                        </div>
+                    ` : ''}
+
+                    <!-- Footer Controls -->
+                    <div class="flex items-center justify-between pt-1 border-t border-[#2d2242]/60 relative z-10">
+                        <button class="trivia-next-btn px-3.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-[11.5px] font-semibold transition-colors cursor-pointer flex items-center gap-1">
+                            <span>${st.answered ? 'Next Question →' : 'Skip Question'}</span>
+                        </button>
+                        <button class="game-switch-btn px-3 py-1.5 rounded-lg hover:bg-white/5 text-text-muted hover:text-white text-[11px] font-medium transition-colors cursor-pointer" data-to="rps">
+                            Play RPS →
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderRpsHtml(gameId, payload) {
+            const st = getOrInitGameState(gameId, 'rps');
+            const choices = [
+                { id: 'rock', name: 'Rock', icon: '🪨' },
+                { id: 'paper', name: 'Paper', icon: '📄' },
+                { id: 'scissors', name: 'Scissors', icon: '✂️' }
+            ];
+
+            let banner = `<div class="text-[12px] text-text-muted">Choose your weapon to challenge Agentie:</div>`;
+            if (st.outcome === 'win') {
+                banner = `<div class="text-[12.5px] text-emerald-400 font-bold flex items-center gap-1.5"><span class="material-symbols-outlined text-[16px]">celebration</span> You Won! (${st.userChoice} beats ${st.agentChoice})</div>`;
+            } else if (st.outcome === 'lose') {
+                banner = `<div class="text-[12.5px] text-rose-400 font-bold flex items-center gap-1.5"><span class="material-symbols-outlined text-[16px]">sentiment_very_dissatisfied</span> Agentie Won! (${st.agentChoice} beats ${st.userChoice})</div>`;
+            } else if (st.outcome === 'draw') {
+                banner = `<div class="text-[12.5px] text-amber-300 font-bold flex items-center gap-1.5">🤝 Draw! Both chose ${st.userChoice}</div>`;
+            }
+
+            return `
+                <div class="game-card rps-card space-y-3.5 p-4 rounded-2xl bg-gradient-to-br from-[#1b1712] via-[#15110d] to-[#0c0907] border border-amber-500/30 text-left shadow-lg relative overflow-hidden" data-game-id="${gameId}">
+                    <div class="absolute -right-8 -top-8 w-36 h-36 bg-amber-500/15 rounded-full blur-2xl pointer-events-none"></div>
+
+                    <!-- Header -->
+                    <div class="flex items-center justify-between border-b border-[#36291e]/70 pb-2 relative z-10">
+                        <div class="flex items-center gap-2 text-amber-400">
+                            <span class="material-symbols-outlined text-[19px]">front_hand</span>
+                            <span class="text-[13.5px] font-bold text-white tracking-wide">Rock • Paper • Scissors</span>
+                        </div>
+                        <span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono font-semibold uppercase">
+                            Streak: ${st.streak || 0} 🔥
+                        </span>
+                    </div>
+
+                    <!-- Outcome Banner -->
+                    <div class="py-1 relative z-10">
+                        ${banner}
+                    </div>
+
+                    <!-- 3 Weapon Choices -->
+                    <div class="grid grid-cols-3 gap-2 relative z-10">
+                        ${choices.map(c => `
+                            <button class="rps-choice-btn p-3 rounded-xl bg-[#231b14] hover:bg-[#32251a] border border-[#3d2e20] hover:border-amber-400/50 flex flex-col items-center gap-1 transition-all cursor-pointer" data-choice="${c.id}">
+                                <span class="text-[26px]">${c.icon}</span>
+                                <span class="text-[11.5px] font-semibold text-white">${c.name}</span>
+                            </button>
+                        `).join('')}
+                    </div>
+
+                    <!-- Footer Controls -->
+                    <div class="flex items-center justify-between pt-1 border-t border-[#36291e]/60 relative z-10">
+                        <span class="text-[11px] text-text-muted font-mono">Wins: ${st.totalWon || 0}</span>
+                        <button class="game-switch-btn px-3 py-1.5 rounded-lg hover:bg-white/5 text-text-muted hover:text-white text-[11px] font-medium transition-colors cursor-pointer" data-to="tictactoe">
+                            Play Tic-Tac-Toe →
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderGameHubHtml(gameId, payload) {
+            return `
+                <div class="game-card hub-card space-y-3.5 p-4 rounded-2xl bg-gradient-to-br from-[#121922] via-[#0f141d] to-[#0a0d12] border border-[#10A8FF]/30 text-left shadow-lg relative overflow-hidden" data-game-id="${gameId}">
+                    <div class="absolute -right-8 -top-8 w-36 h-36 bg-[#10A8FF]/10 rounded-full blur-2xl pointer-events-none"></div>
+
+                    <!-- Header -->
+                    <div class="flex items-center justify-between border-b border-[#222e3e]/70 pb-2 relative z-10">
+                        <div class="flex items-center gap-2">
+                            <span class="material-symbols-outlined text-[19px] text-[#10A8FF]">stadia_controller</span>
+                            <span class="text-[13.5px] font-bold text-white tracking-wide">Agentie Arcade Mini-Games</span>
+                        </div>
+                        <span class="text-[10px] px-2 py-0.5 rounded-full bg-[#10A8FF]/15 border border-[#10A8FF]/30 text-[#10A8FF] font-mono font-semibold uppercase">
+                            Instant Play
+                        </span>
+                    </div>
+
+                    <p class="text-[12.5px] text-text-muted relative z-10 leading-snug">
+                        Pick an interactive mini-game to play directly in your chat stream:
+                    </p>
+
+                    <!-- Games Grid -->
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 relative z-10">
+                        <button class="game-switch-btn p-3 rounded-xl bg-[#162230] hover:bg-[#1e2f42] border border-[#26374c] hover:border-[#10A8FF] text-left transition-all cursor-pointer flex flex-col items-start gap-1" data-to="tictactoe">
+                            <div class="text-[20px]">❌⭕</div>
+                            <div class="text-[12px] font-bold text-white mt-1">Tic-Tac-Toe</div>
+                            <div class="text-[10.5px] text-text-muted">Play vs Agentie AI</div>
+                        </button>
+                        <button class="game-switch-btn p-3 rounded-xl bg-[#201830] hover:bg-[#2c2044] border border-[#342452] hover:border-purple-400 text-left transition-all cursor-pointer flex flex-col items-start gap-1" data-to="trivia">
+                            <div class="text-[20px]">🧠💡</div>
+                            <div class="text-[12px] font-bold text-white mt-1">Trivia Quiz</div>
+                            <div class="text-[10.5px] text-text-muted">Tech & Science questions</div>
+                        </button>
+                        <button class="game-switch-btn p-3 rounded-xl bg-[#241c14] hover:bg-[#34261a] border border-[#3e2c1e] hover:border-amber-400 text-left transition-all cursor-pointer flex flex-col items-start gap-1" data-to="rps">
+                            <div class="text-[20px]">🪨✂️</div>
+                            <div class="text-[12px] font-bold text-white mt-1">Rock Paper Scissors</div>
+                            <div class="text-[10.5px] text-text-muted">Streak battle challenge</div>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // =========================================================================
+        // AGENTIE RESPONSE FORMATS ENGINE (9 SPEC FORMATS + LIVE TIME & WEATHER & GAMES)
         // =========================================================================
         function renderTaskResult(msg) {
             const type = msg.result_type || 'fact';
@@ -2129,6 +2510,180 @@
             const content = msg.text || '';
 
             switch (type) {
+                // 0. LIVE TIME & DATE CARD
+                case 'live_time_card': {
+                    const now = new Date();
+                    const initialTime = payload.time || now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+                    const initialDate = payload.date || now.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                    const initialTz = payload.timezone || (Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'Local Time') || 'Local Time';
+
+                    return `
+                        <div class="live-clock-card space-y-3.5 p-4 rounded-2xl bg-gradient-to-br from-[#121922] via-[#0f141b] to-[#0a0d12] border border-[#10A8FF]/30 text-left shadow-lg relative overflow-hidden">
+                            <!-- Ambient glow behind clock -->
+                            <div class="absolute -right-8 -top-8 w-36 h-36 bg-[#10A8FF]/10 rounded-full blur-2xl pointer-events-none"></div>
+
+                            <!-- Header with Live badge -->
+                            <div class="flex items-center justify-between border-b border-[#222c38]/70 pb-2.5 relative z-10">
+                                <div class="flex items-center gap-2">
+                                    <span class="relative flex h-2.5 w-2.5">
+                                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                                    </span>
+                                    <span class="text-[13px] font-bold text-white tracking-wide">${payload.title || 'Live Local Time'}</span>
+                                </div>
+                                <span class="text-[10px] px-2.5 py-0.5 rounded-full bg-[#10A8FF]/15 border border-[#10A8FF]/30 text-[#10A8FF] font-mono font-semibold tracking-wider uppercase flex items-center gap-1">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-[#10A8FF] animate-pulse"></span>
+                                    Realtime
+                                </span>
+                            </div>
+
+                            <!-- Live Digital Time Display -->
+                            <div class="py-1 relative z-10">
+                                <div class="live-clock-time font-mono text-[32px] sm:text-[38px] font-extrabold text-white tracking-tight leading-none drop-shadow-sm select-all">
+                                    ${initialTime}
+                                </div>
+                            </div>
+
+                            <!-- Date & Timezone Details Grid -->
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 relative z-10">
+                                <div class="p-2.5 rounded-xl bg-[#17202b]/70 border border-[#232f3e] flex items-center gap-2.5">
+                                    <div class="w-7 h-7 rounded-lg bg-[#111822] border border-[#263546] flex items-center justify-center shrink-0 text-[#10A8FF]">
+                                        <span class="material-symbols-outlined text-[16px]">calendar_today</span>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <div class="text-[9.5px] text-text-muted uppercase font-semibold tracking-wider">Date</div>
+                                        <div class="live-clock-date text-[12px] font-medium text-white truncate">${initialDate}</div>
+                                    </div>
+                                </div>
+                                <div class="p-2.5 rounded-xl bg-[#17202b]/70 border border-[#232f3e] flex items-center gap-2.5">
+                                    <div class="w-7 h-7 rounded-lg bg-[#111822] border border-[#263546] flex items-center justify-center shrink-0 text-teal-400">
+                                        <span class="material-symbols-outlined text-[16px]">public</span>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <div class="text-[9.5px] text-text-muted uppercase font-semibold tracking-wider">Timezone</div>
+                                        <div class="live-clock-tz text-[12px] font-medium text-white truncate">${initialTz}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Interactive Action Footer -->
+                            <div class="flex items-center justify-between pt-1 border-t border-[#222c38]/60 relative z-10">
+                                <span class="text-[11px] text-text-muted font-mono flex items-center gap-1">
+                                    <span class="material-symbols-outlined text-[13px] text-emerald-400 animate-spin" style="animation-duration: 4s;">sync</span> Live clock running
+                                </span>
+                                <button class="live-clock-copy-btn px-3 py-1.5 rounded-lg bg-[#1a232e] hover:bg-[#222e3d] border border-[#2a384a] text-text-muted hover:text-white text-[11.5px] font-medium transition-colors cursor-pointer flex items-center gap-1.5">
+                                    <span class="material-symbols-outlined text-[13px]">content_copy</span> Copy Time
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // 0.1 LIVE WEATHER CARD
+                case 'weather_card': {
+                    const w = payload.weather || getMockOrRealWeather(payload.location || 'Local Area');
+                    const isF = !!payload.useFahrenheit;
+                    const temp = isF ? Math.round((w.tempC * 9/5) + 32) : w.tempC;
+                    const high = isF ? Math.round((w.highC * 9/5) + 32) : w.highC;
+                    const low = isF ? Math.round((w.lowC * 9/5) + 32) : w.lowC;
+                    const unit = isF ? '°F' : '°C';
+
+                    return `
+                        <div class="weather-card space-y-3.5 p-4 rounded-2xl bg-gradient-to-br from-[#101b2a] via-[#0d141e] to-[#090e16] border border-[#10A8FF]/30 text-left shadow-lg relative overflow-hidden" data-loc="${encodeURIComponent(w.location)}" data-tempc="${w.tempC}">
+                            <div class="absolute -right-8 -top-8 w-36 h-36 bg-[#10A8FF]/15 rounded-full blur-2xl pointer-events-none"></div>
+
+                            <!-- Header -->
+                            <div class="flex items-center justify-between border-b border-[#202d3d]/70 pb-2.5 relative z-10">
+                                <div class="flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-[19px] text-[#10A8FF]">${w.icon}</span>
+                                    <span class="text-[13.5px] font-bold text-white tracking-wide">${w.location}</span>
+                                </div>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-[#10A8FF]/15 border border-[#10A8FF]/30 text-[#10A8FF] font-mono font-medium">
+                                        Live Forecast
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- Main Temperature Display -->
+                            <div class="flex items-center justify-between py-1 relative z-10">
+                                <div>
+                                    <div class="flex items-baseline gap-2">
+                                        <span class="weather-temp-val font-mono text-[36px] sm:text-[42px] font-extrabold text-white tracking-tight leading-none">${temp}${unit}</span>
+                                        <span class="text-[13px] text-text-muted font-medium">${w.condition}</span>
+                                    </div>
+                                    <div class="text-[11.5px] text-text-muted mt-1 font-mono">
+                                        High: <span class="text-white font-medium">${high}${unit}</span> • Low: <span class="text-white font-medium">${low}${unit}</span>
+                                    </div>
+                                </div>
+                                <div class="w-12 h-12 rounded-2xl bg-[#142233] border border-[#22364e] flex items-center justify-center text-[#10A8FF] shrink-0 shadow-inner">
+                                    <span class="material-symbols-outlined text-[28px]">${w.icon}</span>
+                                </div>
+                            </div>
+
+                            <!-- Atmosphere Metrics Grid -->
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 relative z-10">
+                                <div class="p-2 rounded-xl bg-[#141e2b]/80 border border-[#202e40] text-center">
+                                    <div class="text-[9.5px] text-text-muted uppercase font-semibold">Humidity</div>
+                                    <div class="text-[12px] font-mono font-bold text-white mt-0.5">${w.humidity}%</div>
+                                </div>
+                                <div class="p-2 rounded-xl bg-[#141e2b]/80 border border-[#202e40] text-center">
+                                    <div class="text-[9.5px] text-text-muted uppercase font-semibold">Wind</div>
+                                    <div class="text-[12px] font-mono font-bold text-white mt-0.5">${w.wind} km/h</div>
+                                </div>
+                                <div class="p-2 rounded-xl bg-[#141e2b]/80 border border-[#202e40] text-center">
+                                    <div class="text-[9.5px] text-text-muted uppercase font-semibold">Rain Chance</div>
+                                    <div class="text-[12px] font-mono font-bold text-white mt-0.5">${w.precipitation}%</div>
+                                </div>
+                                <div class="p-2 rounded-xl bg-[#141e2b]/80 border border-[#202e40] text-center">
+                                    <div class="text-[9.5px] text-text-muted uppercase font-semibold">UV Index</div>
+                                    <div class="text-[12px] font-mono font-bold text-white mt-0.5">${w.uv}</div>
+                                </div>
+                            </div>
+
+                            <!-- 4-Day Forecast -->
+                            <div class="space-y-1.5 pt-1 relative z-10">
+                                <div class="text-[10px] text-text-muted uppercase font-semibold tracking-wider">Upcoming Forecast</div>
+                                <div class="grid grid-cols-4 gap-1.5">
+                                    ${(w.forecast || []).map(f => `
+                                        <div class="p-2 rounded-xl bg-[#141e2b]/60 border border-[#1e2a3a] text-center flex flex-col items-center gap-1">
+                                            <span class="text-[10.5px] font-medium text-text-muted">${f.day}</span>
+                                            <span class="material-symbols-outlined text-[16px] text-[#10A8FF]">${f.icon}</span>
+                                            <span class="text-[11px] font-mono font-bold text-white">${isF ? Math.round((f.tempC * 9/5) + 32) : f.tempC}${unit}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+
+                            <!-- Footer Actions -->
+                            <div class="flex items-center justify-between pt-1 border-t border-[#202d3d]/60 relative z-10">
+                                <span class="text-[11px] text-text-muted font-mono flex items-center gap-1">
+                                    <span class="material-symbols-outlined text-[13px] text-[#10A8FF]">radar</span> Live Meteorological Feed
+                                </span>
+                                <button class="weather-toggle-unit-btn px-2.5 py-1 rounded-lg bg-[#1a2533] hover:bg-[#223246] border border-[#2b3e55] text-[11px] font-mono font-semibold text-[#10A8FF] transition-colors cursor-pointer" data-f="${isF ? '1' : '0'}">
+                                    Switch to ${isF ? '°C' : '°F'}
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // 0.2 MINI-GAMES ARCADE CARD (TIC-TAC-TOE, TRIVIA, RPS, HUB)
+                case 'game_card': {
+                    const gameType = payload.game_type || 'hub';
+                    const gameId = payload.game_id || ('game_' + Math.random().toString(36).substr(2, 8));
+
+                    if (gameType === 'tictactoe') {
+                        return renderTicTacToeHtml(gameId, payload);
+                    } else if (gameType === 'trivia') {
+                        return renderTriviaHtml(gameId, payload);
+                    } else if (gameType === 'rps') {
+                        return renderRpsHtml(gameId, payload);
+                    } else {
+                        return renderGameHubHtml(gameId, payload);
+                    }
+                }
+
                 // 1. PLAIN TEXT (fact)
                 case 'fact':
                     return `
@@ -2718,7 +3273,164 @@
                             });
                         });
 
-                        // Interactive Handler 3: Card Action Buttons (Copy / Undo)
+                        // Interactive Handler 3: Live Clock Copy Button
+                        const clockCopyBtn = row.querySelector('.live-clock-copy-btn');
+                        if (clockCopyBtn) {
+                            clockCopyBtn.addEventListener('click', () => {
+                                const timeEl = row.querySelector('.live-clock-time');
+                                const dateEl = row.querySelector('.live-clock-date');
+                                const tzEl = row.querySelector('.live-clock-tz');
+                                const textToCopy = `${timeEl ? timeEl.textContent.trim() : ''} • ${dateEl ? dateEl.textContent.trim() : ''} (${tzEl ? tzEl.textContent.trim() : ''})`.trim();
+                                navigator.clipboard.writeText(textToCopy).catch(() => {});
+                                clockCopyBtn.innerHTML = `<span class="material-symbols-outlined text-[13px] text-emerald-400">check</span> Copied!`;
+                                setTimeout(() => {
+                                    clockCopyBtn.innerHTML = `<span class="material-symbols-outlined text-[13px]">content_copy</span> Copy Time`;
+                                }, 1500);
+                            });
+                        }
+
+                        // Interactive Handler 3.1: Weather Unit Switcher (°C / °F)
+                        const weatherToggleBtn = row.querySelector('.weather-toggle-unit-btn');
+                        if (weatherToggleBtn) {
+                            weatherToggleBtn.addEventListener('click', () => {
+                                if (!msg.result_payload) msg.result_payload = {};
+                                msg.result_payload.useFahrenheit = !msg.result_payload.useFahrenheit;
+                                renderMainWorkspace(agent);
+                            });
+                        }
+
+                        // Interactive Handler 3.2: Mini-Games Interactive Handlers
+                        const gameCard = row.querySelector('.game-card');
+                        if (gameCard) {
+                            const gameId = gameCard.getAttribute('data-game-id');
+
+                            // Tic-Tac-Toe Move
+                            gameCard.querySelectorAll('.ttt-cell').forEach(cellBtn => {
+                                cellBtn.addEventListener('click', () => {
+                                    const st = getOrInitGameState(gameId, 'tictactoe');
+                                    const idx = parseInt(cellBtn.getAttribute('data-idx'));
+                                    if (st.board[idx] || st.status !== 'your_turn') return;
+
+                                    st.board[idx] = 'X';
+                                    const winCheck = checkTicTacToeWinner(st.board);
+                                    if (winCheck === 'X') {
+                                        st.status = 'x_won';
+                                        st.scores.user += 1;
+                                        renderMainWorkspace(agent);
+                                    } else if (winCheck === 'draw') {
+                                        st.status = 'draw';
+                                        st.scores.draws += 1;
+                                        renderMainWorkspace(agent);
+                                    } else {
+                                        st.status = 'agent_thinking';
+                                        renderMainWorkspace(agent);
+
+                                        setTimeout(() => {
+                                            const avail = [];
+                                            st.board.forEach((val, i) => { if (!val) avail.push(i); });
+                                            if (avail.length > 0) {
+                                                // Simple AI: pick winning or blocking move, or random
+                                                const pick = avail[Math.floor(Math.random() * avail.length)];
+                                                st.board[pick] = 'O';
+                                                const aiWinCheck = checkTicTacToeWinner(st.board);
+                                                if (aiWinCheck === 'O') {
+                                                    st.status = 'o_won';
+                                                    st.scores.agent += 1;
+                                                } else if (aiWinCheck === 'draw') {
+                                                    st.status = 'draw';
+                                                    st.scores.draws += 1;
+                                                } else {
+                                                    st.status = 'your_turn';
+                                                }
+                                            } else {
+                                                st.status = 'draw';
+                                            }
+                                            renderMainWorkspace(agent);
+                                        }, 400);
+                                    }
+                                });
+                            });
+
+                            // Tic-Tac-Toe Restart
+                            const tttRestart = gameCard.querySelector('.ttt-restart-btn');
+                            if (tttRestart) {
+                                tttRestart.addEventListener('click', () => {
+                                    const st = getOrInitGameState(gameId, 'tictactoe');
+                                    st.board = Array(9).fill(null);
+                                    st.status = 'your_turn';
+                                    renderMainWorkspace(agent);
+                                });
+                            }
+
+                            // Trivia Option Select
+                            gameCard.querySelectorAll('.trivia-opt-btn').forEach(btn => {
+                                btn.addEventListener('click', () => {
+                                    const st = getOrInitGameState(gameId, 'trivia');
+                                    if (st.answered) return;
+                                    const optIdx = parseInt(btn.getAttribute('data-opt'));
+                                    const item = TRIVIA_BANK[st.qIdx] || TRIVIA_BANK[0];
+                                    st.selected = optIdx;
+                                    st.answered = true;
+                                    if (optIdx === item.ans) {
+                                        st.score += 100;
+                                    }
+                                    renderMainWorkspace(agent);
+                                });
+                            });
+
+                            // Trivia Next Question
+                            const triviaNext = gameCard.querySelector('.trivia-next-btn');
+                            if (triviaNext) {
+                                triviaNext.addEventListener('click', () => {
+                                    const st = getOrInitGameState(gameId, 'trivia');
+                                    st.qIdx = (st.qIdx + 1) % TRIVIA_BANK.length;
+                                    st.answered = false;
+                                    st.selected = null;
+                                    renderMainWorkspace(agent);
+                                });
+                            }
+
+                            // Rock Paper Scissors Choice
+                            gameCard.querySelectorAll('.rps-choice-btn').forEach(btn => {
+                                btn.addEventListener('click', () => {
+                                    const st = getOrInitGameState(gameId, 'rps');
+                                    const uChoice = btn.getAttribute('data-choice');
+                                    const weapons = ['rock', 'paper', 'scissors'];
+                                    const aChoice = weapons[Math.floor(Math.random() * weapons.length)];
+
+                                    st.userChoice = uChoice;
+                                    st.agentChoice = aChoice;
+
+                                    if (uChoice === aChoice) {
+                                        st.outcome = 'draw';
+                                    } else if (
+                                        (uChoice === 'rock' && aChoice === 'scissors') ||
+                                        (uChoice === 'paper' && aChoice === 'rock') ||
+                                        (uChoice === 'scissors' && aChoice === 'paper')
+                                    ) {
+                                        st.outcome = 'win';
+                                        st.streak = (st.streak || 0) + 1;
+                                        st.totalWon = (st.totalWon || 0) + 1;
+                                    } else {
+                                        st.outcome = 'lose';
+                                        st.streak = 0;
+                                    }
+                                    renderMainWorkspace(agent);
+                                });
+                            });
+
+                            // Game Switcher (to tictactoe, trivia, rps)
+                            gameCard.querySelectorAll('.game-switch-btn').forEach(swBtn => {
+                                swBtn.addEventListener('click', () => {
+                                    const targetGame = swBtn.getAttribute('data-to');
+                                    if (!msg.result_payload) msg.result_payload = {};
+                                    msg.result_payload.game_type = targetGame;
+                                    renderMainWorkspace(agent);
+                                });
+                            });
+                        }
+
+                        // Interactive Handler 4: Card Action Buttons (Copy / Undo)
                         const cardCopyBtn = row.querySelector('.action-btn-copy');
                         if (cardCopyBtn) {
                             cardCopyBtn.addEventListener('click', () => {
@@ -2893,6 +3605,69 @@
         function processPluginActivity(text, file) {
             const rawText = (text || '').trim();
             const lower = rawText.toLowerCase();
+
+            // 0. TIME & DATE QUERY -> LIVE CLOCK CARD
+            const timeKeywords = ['what time is it', 'what is the time', 'what time', 'tell me the time', 'current time', 'time now', "what's the time", 'what is the date', "what's the date", "what's today's date", "today's date", 'current date', 'what day is it', 'what date is it', 'show time', 'live time', 'date and time', 'time and date', 'today date'];
+            const isExactClock = lower === 'time' || lower === 'date' || lower === 'clock' || lower.startsWith('time?') || lower.startsWith('date?');
+            const isTimeQuery = isExactClock || timeKeywords.some(k => lower.includes(k));
+
+            if (isTimeQuery) {
+                const now = new Date();
+                return {
+                    result_type: 'live_time_card',
+                    result_payload: {
+                        title: 'Live Local Time & Date',
+                        time: now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }),
+                        date: now.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+                        timezone: (Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'Local Time') || 'Local Time',
+                        iso: now.toISOString()
+                    },
+                    text: 'Here is the current live time and date:'
+                };
+            }
+
+            // 0.1 WEATHER QUERY -> LIVE WEATHER FORECAST CARD
+            const weatherKeywords = ['weather', 'forecast', 'temperature', 'is it raining', 'how hot is it', 'rain today', 'weather today', 'what is the weather', "what's the weather", 'climate', 'temp today', 'show weather'];
+            const isWeatherQuery = weatherKeywords.some(k => lower.includes(k));
+            if (isWeatherQuery) {
+                // Extract possible city name from text e.g. "weather in Tokyo" or "London weather"
+                let loc = 'Local Area';
+                const matchIn = rawText.match(/(?:in|for|at)\s+([A-Za-z\s]+)(?:\?|$)/i);
+                if (matchIn && matchIn[1]) {
+                    loc = matchIn[1].trim();
+                } else {
+                    const words = rawText.split(/\s+/).filter(w => !weatherKeywords.some(k => k.includes(w.toLowerCase())));
+                    if (words.length > 0) loc = words.join(' ');
+                }
+                const wData = getMockOrRealWeather(loc);
+                return {
+                    result_type: 'weather_card',
+                    result_payload: {
+                        location: wData.location,
+                        weather: wData
+                    },
+                    text: `Here is the current weather forecast for ${wData.location}:`
+                };
+            }
+
+            // 0.2 MINI-GAMES QUERY -> PLAYABLE ARCADE CARD
+            const gameKeywords = ['play a game', 'play game', 'games', 'game', 'tic tac toe', 'tictactoe', 'trivia', 'quiz', 'rock paper scissors', 'rps', 'mini game', 'arcade', 'play with me', "let's play", 'play something'];
+            const isGameQuery = gameKeywords.some(k => lower.includes(k)) || lower === 'play';
+            if (isGameQuery) {
+                let gameType = 'hub';
+                if (lower.includes('tic tac toe') || lower.includes('tictactoe')) gameType = 'tictactoe';
+                else if (lower.includes('trivia') || lower.includes('quiz')) gameType = 'trivia';
+                else if (lower.includes('rps') || lower.includes('rock paper') || lower.includes('scissors')) gameType = 'rps';
+
+                return {
+                    result_type: 'game_card',
+                    result_payload: {
+                        game_type: gameType,
+                        game_id: 'game_' + Math.random().toString(36).substr(2, 8)
+                    },
+                    text: "Here is your interactive mini-game:"
+                };
+            }
 
             // 1. MANDATORY GUARDRAIL: Irreversible Actions -> Approval Prompt
             // Triggered before send/delete/pay/publish/refund/drop

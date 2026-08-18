@@ -144,6 +144,57 @@ export async function runTask(taskId) {
     }
   }
 
+  // ── Step 0.5: time and date query -> return live_time_card ──
+  if (!isResume) {
+    const cleanInst = (task.instruction || "").toLowerCase().trim();
+    const timeKeywords = ["what time is it", "what is the time", "what time", "tell me the time", "current time", "time now", "what's the time", "what is the date", "what's the date", "what's today's date", "today's date", "current date", "what day is it", "what date is it", "show time", "live time", "date and time", "time and date", "clock"];
+    const isExactClock = cleanInst === "time" || cleanInst === "date" || cleanInst === "clock" || cleanInst.startsWith("time?") || cleanInst.startsWith("date?");
+    const isTimeReq = isExactClock || timeKeywords.some(k => cleanInst.includes(k));
+
+    if (isTimeReq) {
+      const now = new Date();
+      await completeTask(taskId, {
+        result_type: "live_time_card",
+        result_payload: {
+          title: "Live Local Time & Date",
+          time: now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true }),
+          date: now.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" }),
+          timezone: "Local Time",
+          iso: now.toISOString(),
+        },
+      });
+      return;
+    }
+
+    // ── Weather query -> return weather_card ──
+    const weatherKeywords = ["weather", "forecast", "temperature", "is it raining", "how hot is it", "rain today", "weather today", "what is the weather", "what's the weather", "climate", "temp today", "show weather"];
+    if (weatherKeywords.some(k => cleanInst.includes(k))) {
+      let loc = "Local Area";
+      const matchIn = cleanInst.match(/(?:in|for|at)\s+([A-Za-z\s]+)(?:\?|$)/i);
+      if (matchIn && matchIn[1]) loc = matchIn[1].trim();
+      await completeTask(taskId, {
+        result_type: "weather_card",
+        result_payload: { location: loc },
+      });
+      return;
+    }
+
+    // ── Games query -> return game_card ──
+    const gameKeywords = ["play a game", "play game", "games", "game", "tic tac toe", "tictactoe", "trivia", "quiz", "rock paper scissors", "rps", "mini game", "arcade", "play with me", "let's play", "play something"];
+    if (gameKeywords.some(k => cleanInst.includes(k)) || cleanInst === "play") {
+      let gameType = "hub";
+      if (cleanInst.includes("tic tac toe") || cleanInst.includes("tictactoe")) gameType = "tictactoe";
+      else if (cleanInst.includes("trivia") || cleanInst.includes("quiz")) gameType = "trivia";
+      else if (cleanInst.includes("rps") || cleanInst.includes("rock paper") || cleanInst.includes("scissors")) gameType = "rps";
+
+      await completeTask(taskId, {
+        result_type: "game_card",
+        result_payload: { game_type: gameType, game_id: "game_" + Math.random().toString(36).substr(2, 8) },
+      });
+      return;
+    }
+  }
+
   // ── Step 1: cheap intent check — skip the whole pipeline for small talk ──
   if (!isResume) {
     const intent = await classifyIntent({ instruction: task.instruction, userId: task.user_id, agentId: agent.id, taskId });
