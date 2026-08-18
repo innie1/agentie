@@ -2,6 +2,8 @@ import "dotenv/config";
 import express from "express";
 import { agentTaskQueue, startWorker } from "./lib/queue.js";
 import { runTask } from "./lib/agentLoop.js";
+import { openRouterStatus } from "./lib/openrouter.js";
+import { getModelForRole } from "./lib/modelConfig.js";
 import { supabaseAdmin } from "./supabaseClient.js";
 
 // ── HTTP endpoint the server calls to enqueue a task the moment it's created ──
@@ -20,7 +22,21 @@ app.post("/enqueue", async (req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/health", (req, res) => res.json({ ok: true }));
+// Real health check — tells you at a glance whether OpenRouter is actually
+// working from the worker's side, not just whether the process is alive.
+app.get("/health", async (req, res) => {
+  const fastModel = await getModelForRole("fast").catch(() => null);
+  const reasoningModel = await getModelForRole("reasoning").catch(() => null);
+
+  res.json({
+    ok: true,
+    openrouter_key_present: !!process.env.OPENROUTER_API_KEY,
+    openrouter_last_call: openRouterStatus.lastCallOk,       // null until the first real call happens
+    openrouter_last_error: openRouterStatus.lastError,
+    openrouter_last_checked_at: openRouterStatus.lastCheckedAt,
+    current_models: { fast: fastModel, reasoning: reasoningModel },
+  });
+});
 
 const PORT = process.env.WORKER_PORT || 4100;
 app.listen(PORT, () => console.log(`[worker] enqueue endpoint listening on :${PORT}`));
@@ -53,5 +69,9 @@ async function recoverPendingTasks() {
   if (pending?.length) console.log(`[worker] re-enqueued ${pending.length} pending task(s) on boot`);
 }
 recoverPendingTasks();
+
+if (!process.env.OPENROUTER_API_KEY) {
+  console.warn("[worker] ⚠️  OPENROUTER_API_KEY is not set — every task will fail until this is added to the worker's environment variables.");
+}
 
 console.log("[worker] Agentie worker up. Waiting for tasks...");

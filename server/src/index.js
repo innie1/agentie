@@ -6,9 +6,11 @@ import pluginsRouter, { oauthCallbackHandler } from './routes/plugins.js';
 import agentsRouter from './routes/agents.js';
 import tasksRouter from './routes/tasks.js';
 import skillsRouter from './routes/skills.js';
-import routinesRouter from './routes/routines.js';   // NEW
-import tokensRouter from './routes/tokens.js';        // NEW
+import routinesRouter from './routes/routines.js';
+import tokensRouter from './routes/tokens.js';
+import systemRouter from './routes/system.js';           // NEW
 import { cronScheduler } from './services/cronScheduler.js';
+import { refreshModelsCatalog } from './services/modelCatalogService.js'; // NEW
 
 const app = express();
 const PORT = process.env.PORT || process.env.SERVER_PORT || 4000;
@@ -24,8 +26,9 @@ app.use("/api/plugins", requireAuth, pluginsRouter);
 app.use("/api/agents", requireAuth, agentsRouter);
 app.use("/api/tasks", requireAuth, tasksRouter);
 app.use("/api/skills", requireAuth, skillsRouter);
-app.use("/api/routines", requireAuth, routinesRouter);   // NEW
-app.use("/api/tokens", requireAuth, tokensRouter);        // NEW
+app.use("/api/routines", requireAuth, routinesRouter);
+app.use("/api/tokens", requireAuth, tokensRouter);
+app.use("/api/system", requireAuth, systemRouter);        // NEW
 
 // Health Check
 app.get('/health', (req, res) => {
@@ -42,4 +45,11 @@ app.listen(PORT, async () => {
 
     // Start background cron scheduler worker
     cronScheduler.start();
+
+    // Pull a fresh model catalog on boot, then every 12 hours — keeps
+    // fast/reasoning model IDs current instead of stuck on a hardcoded value.
+    await refreshModelsCatalog();
+    setInterval(() => {
+        refreshModelsCatalog().catch((err) => console.error('[modelCatalog] periodic refresh failed:', err.message));
+    }, 12 * 60 * 60 * 1000);
 });
