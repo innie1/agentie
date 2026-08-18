@@ -1,0 +1,22 @@
+{
+  "name": "agentie-railway-worker",
+  "version": "1.0.0",
+  "description": "Agentie Background Worker, Queue & Agent Runtime Service for Railway",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "bullmq": "^5.41.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ioredis": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

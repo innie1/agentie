@@ -1,0 +1,903 @@
+/* ==========================================================================
+   AGENTIE — 8 ORB AVATARS, LEFT-ALIGNED CHAT LAYOUT & #10A8FF DESIGN SYSTEM
+   ========================================================================== */
+
+:root,
+[data-theme="dark"] {
+    --app-bg: #0B0B0C;
+    --sidebar-bg: #121214;
+    --card-bg: #161618;
+    --card-hover: #1E1E20;
+    --item-active: #222226;
+    --input-bg: #18181B;
+    --border-dark: #242428;
+    --border-subtle: #1F1F23;
+    --text-primary: #F3F3F4;
+    --text-muted: #8A8A93;
+    --brand-blue: #10A8FF;
+}
+
+[data-theme="light"] {
+    --app-bg: #F8F9FA;
+    --sidebar-bg: #FFFFFF;
+    --card-bg: #FFFFFF;
+    --card-hover: #F3F4F6;
+    --item-active: #E5E7EB;
+    --input-bg: #FFFFFF;
+    --border-dark: #E5E7EB;
+    --border-subtle: #ECEEF1;
+    --text-primary: #111827;
+    --text-muted: #6B7280;
+    --brand-blue: #10A8FF;
+}
+
+/* ========================================================================= */
+/* LIGHT THEME STYLING (STRICTLY SCOPED - ZERO IMPACT ON DARK THEME)         */
+/* ========================================================================= */
+[data-theme="light"] body {
+    background-color: #F8F9FA !important;
+    color: #111827 !important;
+}
+
+/* Core Surface Utilities */
+[data-theme="light"] .bg-app-bg { background-color: #F8F9FA !important; }
+[data-theme="light"] .bg-card-bg { background-color: #FFFFFF !important; }
+[data-theme="light"] .bg-card-hover { background-color: #F3F4F6 !important; }
+[data-theme="light"] .bg-input-bg { background-color: #FFFFFF !important; }
+[data-theme="light"] .border-border-subtle { border-color: #ECEEF1 !important; }
+[data-theme="light"] .border-border-dark { border-color: #E5E7EB !important; }
+[data-theme="light"] .text-text-primary { color: #111827 !important; }
+[data-theme="light"] .text-text-muted { color: #6B7280 !important; }
+
+/* Page & Background Surfaces */
+[data-theme="light"] .bg-\[\#0B0B0C\],
+[data-theme="light"] .bg-\[\#0B0B0D\],
+[data-theme="light"] .bg-\[\#09090B\],
+[data-theme="light"] .bg-\[\#0C0C0E\],
+[data-theme="light"] .bg-\[\#101013\],
+[data-theme="light"] .bg-\[\#121214\],
+[data-theme="light"] .bg-\[\#121215\] {
+    background-color: #F8F9FA !important;
+}
+
+/* Primary White Card & Dialog Surfaces */
+[data-theme="light"] .bg-\[\#141416\],
+[data-theme="light"] .bg-\[\#141417\],
+[data-theme="light"] .bg-\[\#141418\],
+[data-theme="light"] .bg-\[\#161618\],
+[data-theme="light"] .bg-\[\#16161A\],
+[data-theme="light"] .bg-\[\#18181B\],
+[data-theme="light"] .bg-\[\#18181D\],
+[data-theme="light"] .bg-\[\#19191C\],
+[data-theme="light"] .bg-\[\#111114\],
+[data-theme="light"] .bg-\[\#131316\],
+[data-theme="light"] .bg-\[\#17171C\] {
+    background-color: #FFFFFF !important;
+    color: #111827 !important;
+}
+
+/* Secondary Light Gray Surfaces */
+[data-theme="light"] .bg-\[\#1C1C20\],
+[data-theme="light"] .bg-\[\#1C1C22\],
+[data-theme="light"] .bg-\[\#1C1C24\],
+[data-theme="light"] .bg-\[\#1E1E20\],
+[data-theme="light"] .bg-\[\#1F1F24\],
+[data-theme="light"] .bg-\[\#1F1F26\],
+[data-theme="light"] .bg-\[\#202025\],
+[data-theme="light"] .bg-\[\#202026\],
+[data-theme="light"] .bg-\[\#222226\],
+[data-theme="light"] .bg-\[\#222228\],
+[data-theme="light"] .bg-\[\#24242A\],
+[data-theme="light"] .bg-\[\#26262C\],
+[data-theme="light"] .bg-\[\#27272C\],
+[data-theme="light"] .bg-\[\#282830\],
+[data-theme="light"] .bg-\[\#282832\],
+[data-theme="light"] .bg-\[\#2A2A36\],
+[data-theme="light"] .bg-\[\#2B2B32\],
+[data-theme="light"] .bg-\[\#383842\],
+[data-theme="light"] .bg-\[\#181820\] {
+    background-color: #F3F4F6 !important;
+    color: #111827 !important;
+}
+
+[data-theme="light"] .bg-\[\#1C1C20\]:hover,
+[data-theme="light"] .bg-\[\#1C1C22\]:hover,
+[data-theme="light"] .bg-\[\#222226\]:hover,
+[data-theme="light"] .bg-\[\#26262E\]:hover,
+[data-theme="light"] .bg-\[\#26262C\]:hover,
+[data-theme="light"] .bg-\[\#222228\]:hover {
+    background-color: #E5E7EB !important;
+}
+
+/* Borders */
+[data-theme="light"] .border-\[\#202026\],
+[data-theme="light"] .border-\[\#242428\],
+[data-theme="light"] .border-\[\#1A1A20\],
+[data-theme="light"] .border-\[\#1F1F23\],
+[data-theme="light"] .border-\[\#1E1E24\],
+[data-theme="light"] .border-\[\#26262B\],
+[data-theme="light"] .border-\[\#282830\],
+[data-theme="light"] .border-\[\#26262E\],
+[data-theme="light"] .border-\[\#27272A\],
+[data-theme="light"] .border-\[\#2B2B36\],
+[data-theme="light"] .border-\[\#2A2A34\],
+[data-theme="light"] .border-\[\#3A3A48\],
+[data-theme="light"] .border-\[\#222228\],
+[data-theme="light"] .border-\[\#22222A\],
+[data-theme="light"] .border-\[\#1A1A1E\],
+[data-theme="light"] .border-\[\#383842\],
+[data-theme="light"] .border-\[\#383840\] {
+    border-color: #E5E7EB !important;
+}
+
+/* Dividers */
+[data-theme="light"] .divide-\[\#27272A\],
+[data-theme="light"] .divide-\[\#1F1F24\],
+[data-theme="light"] .divide-\[\#1F1F26\],
+[data-theme="light"] .divide-\[\#222228\] {
+    border-color: #E5E7EB !important;
+}
+
+/* Typography & Contrast Protection */
+[data-theme="light"] .text-white,
+[data-theme="light"] .text-\[\#F3F3F4\] {
+    color: #111827 !important;
+}
+
+/* Keep white text on vibrant action buttons */
+[data-theme="light"] .btn-brand-primary,
+[data-theme="light"] .btn-brand-primary *,
+[data-theme="light"] #chat-send-btn.send-active,
+[data-theme="light"] #chat-send-btn.send-active *,
+[data-theme="light"] .approval-btn-approve,
+[data-theme="light"] .approval-btn-approve *,
+[data-theme="light"] .action-btn-retry,
+[data-theme="light"] .action-btn-retry *,
+[data-theme="light"] .bg-\[\#10A8FF\],
+[data-theme="light"] .bg-\[\#10A8FF\] *,
+[data-theme="light"] .bg-teal-500,
+[data-theme="light"] .bg-emerald-500,
+[data-theme="light"] .bg-rose-500 {
+    color: #FFFFFF !important;
+}
+
+/* Modals & Dialogs */
+[data-theme="light"] #plugins-modal > div,
+[data-theme="light"] #app-settings-modal > div,
+[data-theme="light"] #teach-routine-modal > div,
+[data-theme="light"] #delete-agent-modal > div,
+[data-theme="light"] #agent-settings-modal > div,
+[data-theme="light"] #profile-popover-menu {
+    background-color: #FFFFFF !important;
+    border: 1px solid #E5E7EB !important;
+    border-radius: 16px !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04) !important;
+}
+
+[data-theme="light"] #modal-backdrop {
+    background-color: rgba(0, 0, 0, 0.25) !important;
+    backdrop-filter: blur(4px) !important;
+}
+
+/* Sidebar & Item Rows */
+[data-theme="light"] .sidebar {
+    background-color: #FFFFFF !important;
+    border-right-color: #ECEEF1 !important;
+}
+
+[data-theme="light"] .agent-row.active {
+    background-color: #E5E7EB !important;
+    border: 1px solid #D1D5DB !important;
+}
+
+[data-theme="light"] .agent-row:hover:not(.active) {
+    background-color: #F3F4F6 !important;
+}
+
+/* Right Sliding Drawer */
+[data-theme="light"] .right-drawer {
+    background-color: #FFFFFF !important;
+    border-left-color: #ECEEF1 !important;
+}
+
+[data-theme="light"] #right-settings-view {
+    background-color: #FFFFFF !important;
+}
+
+/* Chat Input Bar */
+[data-theme="light"] #main-chat-input-row,
+[data-theme="light"] #chat-input-container > div {
+    background-color: #FFFFFF !important;
+    border: 1px solid #E5E7EB !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06) !important;
+}
+
+#chat-input {
+    background-color: transparent !important;
+    border: none !important;
+    border-width: 0px !important;
+    box-shadow: none !important;
+    outline: none !important;
+    color: var(--text-primary) !important;
+}
+
+[data-theme="light"] #chat-input {
+    color: #111827 !important;
+}
+
+[data-theme="dark"] #chat-input {
+    color: #F3F3F4 !important;
+}
+
+#chat-input:focus,
+[data-theme="light"] #chat-input:focus {
+    border: none !important;
+    border-width: 0px !important;
+    box-shadow: none !important;
+    outline: none !important;
+    --tw-ring-shadow: none !important;
+}
+
+[data-theme="light"] #chat-input::placeholder {
+    color: #9CA3AF !important;
+}
+
+/* Chat Bubbles */
+[data-theme="light"] .self-end {
+    background-color: #E9ECEF !important;
+    border: 1px solid #DDE1E5 !important;
+    color: #111827 !important;
+}
+
+[data-theme="light"] .bg-bubble-bg {
+    background-color: #FFFFFF !important;
+    border: 1px solid #E5E7EB !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+    color: #111827 !important;
+}
+
+/* Choice Card */
+[data-theme="light"] .choice-card {
+    background-color: #FFFFFF !important;
+    border: 1px solid #E5E7EB !important;
+    border-radius: 16px !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06) !important;
+}
+
+[data-theme="light"] .choice-option-row {
+    background-color: #F9FAFB !important;
+    border-color: #E5E7EB !important;
+    color: #111827 !important;
+}
+
+[data-theme="light"] .choice-option-row:hover {
+    background-color: #F3F4F6 !important;
+}
+
+[data-theme="light"] .choice-option-row span:first-child {
+    background-color: #E5E7EB !important;
+    color: #4B5563 !important;
+}
+
+/* 9 Response Formats */
+[data-theme="light"] .summary-card,
+[data-theme="light"] .structured-list,
+[data-theme="light"] .data-table-card,
+[data-theme="light"] .timeline-card,
+[data-theme="light"] .question-card {
+    background-color: #FFFFFF !important;
+    border: 1px solid #E5E7EB !important;
+    border-radius: 14px !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+[data-theme="light"] .summary-card li span {
+    color: #4B5563 !important;
+}
+
+[data-theme="light"] .data-table-card thead {
+    background-color: #F9FAFB !important;
+    color: #374151 !important;
+}
+
+[data-theme="light"] .approval-prompt {
+    background-color: #FFFDF5 !important;
+    border: 1px solid #FCD34D !important;
+}
+
+[data-theme="light"] .approval-prompt .bg-\[\#1D1618\] {
+    background-color: #FEF3C7 !important;
+    border: 1px solid #FDE68A !important;
+}
+
+[data-theme="light"] .handoff-card {
+    background-color: #FAF5FF !important;
+    border: 1px solid #E9D5FF !important;
+}
+
+[data-theme="light"] .error-report-card {
+    background-color: #FEF2F2 !important;
+    border: 1px solid #FECACA !important;
+}
+
+/* Form Controls */
+[data-theme="light"] input[type="text"]:not(#chat-input),
+[data-theme="light"] input[type="password"],
+[data-theme="light"] select,
+[data-theme="light"] textarea {
+    background-color: #FFFFFF !important;
+    border: 1px solid #D1D5DB !important;
+    color: #111827 !important;
+}
+
+/* Scrollbars */
+[data-theme="light"] .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #D1D5DB !important;
+}
+[data-theme="light"] .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #9CA3AF !important;
+}
+
+/* Gradients */
+[data-theme="light"] .bg-gradient-to-t {
+    background-image: linear-gradient(to top, #F8F9FA, rgba(248, 249, 250, 0.95), transparent) !important;
+}
+
+body {
+    background-color: var(--app-bg);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    letter-spacing: -0.01em;
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Custom Scrollbars */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #26262B;
+    border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #38383F;
+}
+
+/* Left Sidebar Sliding & Mini-Rail Avatar Heads Collapse */
+.sidebar {
+    width: 260px;
+    transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow: hidden;
+}
+
+.sidebar.closed {
+    width: 60px !important;
+    border-right: 1px solid var(--border-subtle) !important;
+    transform: none !important;
+}
+
+.sidebar.closed #sidebar-content {
+    width: 60px !important;
+    padding: 12px 6px !important;
+    align-items: center;
+}
+
+.sidebar.closed .sidebar-hide-on-collapse {
+    display: none !important;
+}
+
+.sidebar.closed .agent-row {
+    padding: 6px 0 !important;
+    justify-content: center !important;
+    width: 44px !important;
+    height: 44px !important;
+    margin: 0 auto !important;
+    border-radius: 12px !important;
+}
+
+.sidebar.closed .agent-row-details,
+.sidebar.closed .delete-agent-btn,
+.sidebar.closed .sidebar-empty-state {
+    display: none !important;
+}
+
+.sidebar.closed #sidebar-plugins-btn {
+    padding: 8px !important;
+    justify-content: center !important;
+}
+
+.sidebar.closed #profile-footer-btn {
+    padding: 6px !important;
+    justify-content: center !important;
+}
+
+/* Right Sliding Drawer Flex Transition */
+.right-drawer {
+    width: 0px;
+    border-left: 0px solid transparent;
+    transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1), border-left-color 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow: hidden;
+}
+
+.right-drawer.open {
+    width: 320px !important;
+    border-left: 1px solid var(--border-subtle) !important;
+}
+
+.right-drawer > div {
+    width: 320px;
+    min-width: 320px;
+}
+
+/* Agent Item Styling */
+.agent-row {
+    transition: all 0.15s ease;
+    border-radius: 12px;
+}
+.agent-row:hover {
+    background-color: var(--card-hover);
+}
+.agent-row.active {
+    background-color: var(--item-active);
+    border: 1px solid var(--border-dark);
+}
+
+/* Agent Settings Modal Navigation & Scrollspy */
+.settings-nav-item {
+    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    border-radius: 10px;
+    border: 1px solid transparent;
+}
+
+.settings-nav-item:hover:not(.active) {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: #FFFFFF;
+}
+
+.settings-nav-item.active {
+    background-color: #222228 !important;
+    color: #FFFFFF !important;
+    font-weight: 600 !important;
+    border-color: rgba(16, 168, 255, 0.3) !important;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.settings-nav-item.active span.material-symbols-outlined {
+    color: #10A8FF !important;
+}
+
+[data-theme="light"] .settings-nav-item.active {
+    background-color: #E5E7EB !important;
+    color: #111827 !important;
+    border-color: rgba(2, 132, 199, 0.3) !important;
+}
+
+[data-theme="light"] .settings-nav-item.active span.material-symbols-outlined {
+    color: #0284C7 !important;
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from { opacity: 0; transform: scale(0.98); }
+    to { opacity: 1; transform: scale(1); }
+}
+.animate-fade-in {
+    animation: fadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Send Button Pop Animation */
+@keyframes popSend {
+    0% { transform: scale(0.85); }
+    50% { transform: scale(1.08); }
+    100% { transform: scale(1); }
+}
+
+#chat-send-btn {
+    transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s ease;
+}
+
+/* Bright Blue #10A8FF Active Send Button */
+#chat-send-btn.send-active {
+    background-color: #10A8FF !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 0 16px rgba(16, 168, 255, 0.6) !important;
+    animation: popSend 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+#chat-send-btn.send-active span {
+    color: #FFFFFF !important;
+}
+
+/* Primary Accept Button Utility */
+.btn-brand-primary {
+    background-color: #10A8FF;
+    color: #FFFFFF;
+    transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+.btn-brand-primary:hover {
+    background-color: #0E96E6;
+}
+
+/* ========================================================================= */
+/* 8 CUTE ORB AVATARS (BLACK EYES FACING RIGHT & SMOOTH WORKING ROTATION)     */
+/* ========================================================================= */
+.orb-avatar {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    overflow: hidden;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* 8 CUTE AVATAR SHAPES (EXACT UNIFORM PROPORTIONS, SOFT ROUNDED CORNERS) */
+.orb-shape-1, .orb-shape-circle {
+    border-radius: 9999px;
+}
+
+.orb-shape-2, .orb-shape-squircle {
+    border-radius: 30%;
+}
+
+.orb-shape-3, .orb-shape-star {
+    clip-path: url(#avatar-clip-star);
+    -webkit-clip-path: url(#avatar-clip-star);
+    border-radius: 20%;
+}
+
+.orb-shape-4, .orb-shape-hex {
+    clip-path: url(#avatar-clip-hex);
+    -webkit-clip-path: url(#avatar-clip-hex);
+    border-radius: 18%;
+}
+
+.orb-shape-5, .orb-shape-diamond {
+    clip-path: url(#avatar-clip-diamond);
+    -webkit-clip-path: url(#avatar-clip-diamond);
+    border-radius: 22%;
+}
+
+.orb-shape-6, .orb-shape-shield {
+    clip-path: url(#avatar-clip-shield);
+    -webkit-clip-path: url(#avatar-clip-shield);
+    border-radius: 20%;
+}
+
+.orb-shape-7, .orb-shape-clover {
+    border-radius: 42% 58% 65% 35% / 40% 60% 40% 60%;
+}
+
+.orb-shape-8, .orb-shape-octagon {
+    border-radius: 34%;
+}
+
+/* 8 Distinct Orb Color Gradients */
+.orb-color-1 { background: linear-gradient(135deg, #38BDF8, #0284C7); } /* Azure Sky */
+.orb-color-2 { background: linear-gradient(135deg, #34D399, #059669); } /* Mint Emerald */
+.orb-color-3 { background: linear-gradient(135deg, #C084FC, #7C3AED); } /* Lavender Purple */
+.orb-color-4 { background: linear-gradient(135deg, #FB7185, #E11D48); } /* Sunset Coral */
+.orb-color-5 { background: linear-gradient(135deg, #FBBF24, #D97706); } /* Warm Amber */
+.orb-color-6 { background: linear-gradient(135deg, #F472B6, #DB2777); } /* Candy Pink */
+.orb-color-7 { background: linear-gradient(135deg, #A3E635, #65A30D); } /* Lime Glow */
+.orb-color-8 { background: linear-gradient(135deg, #818CF8, #4338CA); } /* Royal Indigo */
+
+/* Cute Black Eyes Facing Right */
+.orb-eyes-wrap {
+    position: absolute;
+    right: 25%;
+    top: 34%;
+    display: flex;
+    gap: 3.5px;
+    align-items: center;
+    pointer-events: none;
+}
+
+.orb-eye {
+    width: 3.5px;
+    height: 5.5px;
+    background-color: #111113;
+    border-radius: 9999px;
+    display: inline-block;
+}
+
+/* Scaled Eyes for different sizes */
+.orb-size-xs .orb-eyes-wrap { right: 24%; top: 32%; gap: 2px; }
+.orb-size-xs .orb-eye { width: 2px; height: 3.5px; }
+
+.orb-size-sm .orb-eyes-wrap { right: 25%; top: 34%; gap: 3.5px; }
+.orb-size-sm .orb-eye { width: 3.5px; height: 5.5px; }
+
+.orb-size-lg .orb-eyes-wrap { right: 26%; top: 35%; gap: 6px; }
+.orb-size-lg .orb-eye { width: 6px; height: 9.5px; }
+
+.orb-size-xl { width: 96px !important; height: 96px !important; }
+.orb-size-xl .orb-eyes-wrap { right: 26%; top: 35%; gap: 10px; }
+.orb-size-xl .orb-eye { width: 10px; height: 16px; }
+
+/* Subtle Bright Glow in the background (very small, delicate) - Relaxed & Smooth (5.4s) */
+.orb-avatar.working {
+    box-shadow: 0 0 10px 1.5px rgba(16, 168, 255, 0.45), 0 0 18px 3px rgba(56, 189, 248, 0.2);
+    animation: orbLivelyLookAround 5.4s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite, orbSubtleGlowPulse 3.2s ease-in-out infinite alternate;
+}
+
+.orb-avatar.working .orb-eyes-wrap {
+    animation: orbEyesExplore 5.4s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+
+/* Working Text Light Beam Shimmer Sweep Animation */
+.working-text-shimmer {
+    background: linear-gradient(
+        90deg,
+        rgba(138, 138, 147, 0.7) 0%,
+        rgba(138, 138, 147, 0.7) 20%,
+        #FFFFFF 48%,
+        #10A8FF 58%,
+        rgba(138, 138, 147, 0.7) 80%,
+        rgba(138, 138, 147, 0.7) 100%
+    );
+    background-size: 200% 100%;
+    color: transparent !important;
+    -webkit-background-clip: text !important;
+    background-clip: text !important;
+    display: inline-block;
+    font-weight: 500;
+    letter-spacing: 0.2px;
+    animation: textLightBeamSweep 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+[data-theme="light"] .working-text-shimmer {
+    background: linear-gradient(
+        90deg,
+        rgba(107, 114, 128, 0.7) 0%,
+        rgba(107, 114, 128, 0.7) 20%,
+        #111827 48%,
+        #0284C7 58%,
+        rgba(107, 114, 128, 0.7) 80%,
+        rgba(107, 114, 128, 0.7) 100%
+    );
+    background-size: 200% 100%;
+    color: transparent !important;
+    -webkit-background-clip: text !important;
+    background-clip: text !important;
+}
+
+@keyframes textLightBeamSweep {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+/* Seamless Multi-Directional Body Motion (tilt left, tilt right, dip down, float up) */
+@keyframes orbLivelyLookAround {
+    0% {
+        transform: translateY(0px) rotate(0deg) scale(1);
+    }
+    14% {
+        /* Look down */
+        transform: translateY(2.5px) rotate(-3deg) scale(0.98, 1.02);
+    }
+    28% {
+        /* Look up */
+        transform: translateY(-3px) rotate(3deg) scale(1.01, 0.99);
+    }
+    42% {
+        /* Rotate to left */
+        transform: translateX(-3px) translateY(-1px) rotate(-6deg);
+    }
+    56% {
+        /* Rotate to right */
+        transform: translateX(3.5px) translateY(1px) rotate(7deg);
+    }
+    70% {
+        /* Look up again */
+        transform: translateY(-3.5px) rotate(-2deg) scale(1.02, 0.98);
+    }
+    84% {
+        /* Look side / glance */
+        transform: translateX(2px) translateY(0.5px) rotate(4deg);
+    }
+    100% {
+        transform: translateY(0px) rotate(0deg) scale(1);
+    }
+}
+
+/* Eyes Look Down, Look Up, Rotate Left, Rotate Right, Look Up, Look Side */
+@keyframes orbEyesExplore {
+    0% {
+        transform: translate(0px, 0px);
+    }
+    14% {
+        /* Eyes looking down */
+        transform: translate(-0.5px, 2.5px);
+    }
+    28% {
+        /* Eyes looking up */
+        transform: translate(0.5px, -3px);
+    }
+    42% {
+        /* Eyes looking left */
+        transform: translate(-4px, -1px);
+    }
+    56% {
+        /* Eyes looking right */
+        transform: translate(4px, 0.5px);
+    }
+    70% {
+        /* Eyes looking up */
+        transform: translate(1px, -3.5px);
+    }
+    84% {
+        /* Eyes looking side */
+        transform: translate(3.5px, 1px);
+    }
+    100% {
+        transform: translate(0px, 0px);
+    }
+}
+
+/* Small Delicate Background Glow Pulse */
+@keyframes orbSubtleGlowPulse {
+    0% {
+        box-shadow: 0 0 8px 1px rgba(16, 168, 255, 0.35), 0 0 14px 2px rgba(56, 189, 248, 0.15);
+    }
+    100% {
+        box-shadow: 0 0 12px 2px rgba(16, 168, 255, 0.55), 0 0 20px 4px rgba(56, 189, 248, 0.28);
+    }
+}
+
+/* ========================================================================= */
+/* MOBILE & TABLET RESPONSIVE ENGINE                                         */
+/* ========================================================================= */
+
+/* Viewport Normalization (100dvh for iOS / Android dynamic toolbars) */
+html, body {
+    height: 100% !important;
+    height: 100dvh !important;
+    min-height: -webkit-fill-available;
+    overflow: hidden;
+    touch-action: manipulation;
+}
+
+/* Tablet & Mobile Layout Adjustments (max-width: 1024px) */
+@media (max-width: 1024px) {
+    .right-drawer {
+        width: 360px;
+    }
+    .right-drawer.open {
+        transform: translateX(0);
+    }
+}
+
+/* Mobile Screen Layout Adjustments (max-width: 768px) */
+@media (max-width: 768px) {
+    /* Full Viewport App Base */
+    body {
+        position: fixed;
+        width: 100vw;
+        height: 100dvh;
+    }
+
+    /* Off-canvas Sliding Left Sidebar */
+    .sidebar {
+        position: fixed !important;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        height: 100dvh !important;
+        width: 280px !important;
+        max-width: 85vw !important;
+        z-index: 60 !important;
+        transform: translateX(0);
+        transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.28s ease !important;
+        box-shadow: 10px 0 30px rgba(0, 0, 0, 0.6) !important;
+    }
+
+    .sidebar.closed {
+        transform: translateX(-100%) !important;
+        width: 280px !important;
+        box-shadow: none !important;
+    }
+
+    .sidebar.closed #sidebar-content {
+        display: flex !important;
+    }
+
+    .sidebar.closed .sidebar-hide-on-collapse {
+        display: inline !important;
+    }
+
+    /* Off-canvas Sliding Right Drawer (Active Screen / Computer View) */
+    .right-drawer {
+        position: fixed !important;
+        top: 0;
+        bottom: 0;
+        right: 0;
+        width: 100vw !important;
+        max-width: 100vw !important;
+        z-index: 60 !important;
+        transform: translateX(100%);
+        transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        box-shadow: -10px 0 30px rgba(0, 0, 0, 0.6) !important;
+    }
+
+    .right-drawer.open {
+        transform: translateX(0) !important;
+    }
+
+    /* Main Chat Stream Padding on Mobile */
+    #chat-stream-container {
+        padding-left: 0.875rem !important;
+        padding-right: 0.875rem !important;
+        padding-bottom: 7rem !important;
+    }
+
+    /* Chat Input Pill on Mobile */
+    #chat-input-wrapper {
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0.75rem)) !important;
+    }
+
+    #chat-input {
+        font-size: 14px !important; /* Prevents iOS auto-zoom on input focus */
+    }
+
+    /* Modals on Mobile & Tablet */
+    #plugins-modal > div,
+    #app-settings-modal > div,
+    #teach-routine-modal > div,
+    #agent-settings-modal > div {
+        width: 95vw !important;
+        max-width: 95vw !important;
+        max-height: 92dvh !important;
+        margin: auto !important;
+        border-radius: 18px !important;
+    }
+
+    /* In Settings Modals, stack navigation cleanly */
+    #agent-settings-modal .flex.flex-1.min-h-0,
+    #app-settings-modal .flex.flex-1.min-h-0 {
+        flex-direction: column !important;
+    }
+
+    #agent-settings-modal .w-48,
+    #app-settings-modal .w-56 {
+        width: 100% !important;
+        border-right: none !important;
+        border-bottom: 1px solid var(--border-subtle) !important;
+        display: flex !important;
+        flex-direction: row !important;
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        padding: 0.5rem !important;
+        gap: 0.375rem !important;
+        white-space: nowrap !important;
+        flex-shrink: 0 !important;
+    }
+
+    .settings-nav-item,
+    .app-settings-tab-btn {
+        flex-shrink: 0 !important;
+        width: auto !important;
+        padding: 0.4rem 0.75rem !important;
+        font-size: 11.5px !important;
+    }
+
+    /* Profile Popover Position on Mobile */
+    #profile-popover-menu {
+        left: 12px !important;
+        bottom: 72px !important;
+        width: calc(100vw - 24px) !important;
+        max-width: 280px !important;
+    }
+}
