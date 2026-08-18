@@ -157,6 +157,38 @@ CREATE TABLE IF NOT EXISTS token_usage (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- 12. SKILLS CATALOG
+CREATE TABLE IF NOT EXISTS skills (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    icon_url TEXT,
+    description TEXT,
+    tier TEXT NOT NULL CHECK (tier IN ('core', 'library')),
+    category TEXT,
+    instructions TEXT NOT NULL,
+    suggested_plugins TEXT[] DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'beta', 'disabled')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 13. USER_SKILLS
+CREATE TABLE IF NOT EXISTS user_skills (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id TEXT NOT NULL DEFAULT 'default_user',
+    skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+    installed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, skill_id)
+);
+
+-- 14. AGENT_SKILLS
+CREATE TABLE IF NOT EXISTS agent_skills (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+    enabled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (agent_id, skill_id)
+);
+
 -- INDEXES
 CREATE INDEX IF NOT EXISTS idx_user_plugins_user_id ON user_plugins(user_id);
 CREATE INDEX IF NOT EXISTS idx_agents_user_id ON agents(user_id);
@@ -208,6 +240,34 @@ CREATE POLICY "agent_memory_access_policy" ON agent_memory FOR ALL USING (true) 
 ALTER TABLE token_usage ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "token_usage_access_policy" ON token_usage;
 CREATE POLICY "token_usage_access_policy" ON token_usage FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE models_config ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "models_config_access_policy" ON models_config;
+CREATE POLICY "models_config_access_policy" ON models_config FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE skills ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "skills_access_policy" ON skills;
+CREATE POLICY "skills_access_policy" ON skills FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE user_skills ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "user_skills_access_policy" ON user_skills;
+CREATE POLICY "user_skills_access_policy" ON user_skills FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE agent_skills ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "agent_skills_access_policy" ON agent_skills;
+CREATE POLICY "agent_skills_access_policy" ON agent_skills FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE action_log ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "action_log_access_policy" ON action_log;
+CREATE POLICY "action_log_access_policy" ON action_log FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE task_handoffs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "task_handoffs_access_policy" ON task_handoffs;
+CREATE POLICY "task_handoffs_access_policy" ON task_handoffs FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE pending_auth ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "pending_auth_access_policy" ON pending_auth;
+CREATE POLICY "pending_auth_access_policy" ON pending_auth FOR ALL USING (true) WITH CHECK (true);
 
 -- Enable Supabase Realtime for instant UI status push
 ALTER PUBLICATION supabase_realtime ADD TABLE tasks;

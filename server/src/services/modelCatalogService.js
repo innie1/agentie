@@ -6,8 +6,8 @@ const MODELS_URL = "https://openrouter.ai/api/v1/models";
 // Fallbacks used ONLY if the live catalog fetch fails entirely (network issue,
 // OpenRouter outage) — not treated as permanently correct, just a safety net.
 const HARD_FALLBACK = {
-  fast: "google/gemini-2.0-flash-001",
-  reasoning: "anthropic/claude-3.5-sonnet",
+  fast: "openai/gpt-4o-mini",
+  reasoning: "meta-llama/llama-3.3-70b-instruct",
 };
 
 /**
