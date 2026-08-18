@@ -2,7 +2,8 @@ import { supabaseAdmin } from "../supabaseClient.js";
 import { classifyIntent, fastReply, reasoningCall } from "./openrouter.js";
 import { runPluginAction, IRREVERSIBLE_ACTIONS } from "./pluginRunner.js";
 
-const MAX_STEPS = 8; // hard ceiling so a bad plan can't loop forever
+const MAX_STEPS = 8;
+const BUILT_IN_TOOLS = ["files", "last30days"];
 
 async function matchRoutineTrigger(agentId, instruction) {
   if (!instruction || !agentId) return null;
@@ -45,7 +46,7 @@ async function replayRoutine({ routine, agent, task }) {
     const isIrreversible = IRREVERSIBLE_ACTIONS.has(step.action) && !agent.auto_approved_actions.includes(step.action);
     const params = adaptStepParams(step);
     if (isIrreversible) {
-      await supabaseAdmin.from("tasks").update({ status: "needs_approval", result_type: "irreversible_pending", result_payload: { action: step.action, plugin_id: step.plugin_id, params, description: `${agent.name} wants to run "${routine.name}" step: ${step.action} on ${step.plugin_id}`, routine_id: routine.id }, updated_at: new Date().toISOString() }).eq("id", task.id);
+      await supabaseAdmin.from("tasks").update({ status: "needs_approval", result_type: "irreversible_pending", result_payload: { action: step.action, plugin_id: step.plugin_id, params, description: `${agent.name} wants to run \"${routine.name}\" step: ${step.action} on ${step.plugin_id}`, routine_id: routine.id }, updated_at: new Date().toISOString() }).eq("id", task.id);
       return true;
     }
     const result = await runPluginAction({ userId: task.user_id, agentId: agent.id, taskId: task.id, pluginId: step.plugin_id, action: step.action, params });
@@ -55,7 +56,7 @@ async function replayRoutine({ routine, agent, task }) {
       return true;
     }
   }
-  await supabaseAdmin.from("tasks").update({ status: "done", result_type: "task_complete", result_payload: { text: `Completed routine "${routine.name}" (${steps.length} step${steps.length > 1 ? "s" : ""}).`, routine_id: routine.id }, updated_at: new Date().toISOString() }).eq("id", task.id);
+  await supabaseAdmin.from("tasks").update({ status: "done", result_type: "task_complete", result_payload: { text: `Completed routine \"${routine.name}\" (${steps.length} step${steps.length > 1 ? "s" : ""}).`, routine_id: routine.id }, updated_at: new Date().toISOString() }).eq("id", task.id);
   await recordRoutineRun(routine.id, "success");
   return true;
 }
@@ -105,13 +106,8 @@ export async function runTask(taskId) {
   const skillsBlock = await buildSkillsBlock(agent.id);
   const systemPrompt = buildSystemPrompt(agent, memoryBlock, skillsBlock);
 
-  // Use persisted conversation context for follow-up messages. The API stores the
-  // recent transcript in tasks.context; older paused task state still takes priority.
   const persistedConversation = Array.isArray(task.context?.conversation) ? task.context.conversation : [];
-  let conversation = task.result_payload?.paused_state?.conversation || [
-    ...persistedConversation,
-    { role: "user", content: task.instruction },
-  ];
+  let conversation = task.result_payload?.paused_state?.conversation || [...persistedConversation, { role: "user", content: task.instruction }];
   let stepCount = task.result_payload?.paused_state?.step_count || 0;
 
   while (stepCount < MAX_STEPS) {
@@ -154,7 +150,8 @@ async function buildSkillsBlock(agentId) {
 }
 
 function buildSystemPrompt(agent, memoryBlock, skillsBlock) {
-  return `${agent.system_prompt}\n\n${skillsBlock}\n\nYou can use these plugins (only these): ${agent.allowed_plugins.join(", ") || "(none connected)"}\n\nSkills determine HOW you approach a task (how you plan, review, communicate).\nPlugins determine WHAT tools you have access to. Apply your skills' guidance\nregardless of which plugins are available — skills shape reasoning and output\nquality even on tasks that use no plugin at all.\n\nKnown facts about how this user works:\n${memoryBlock}\n\nRespond with ONLY a single JSON object, no other text, matching one of these shapes:\n{"type":"action","plugin_id":"gmail","action":"send_email","params":{...},"description":"short human description of what this does"}\n{"type":"question","question":"...", "options":["A","B"]}\n{"type":"handoff","to_agent_name":"...", "note":"context summary for the receiving agent"}\n{"type":"final_answer","text":"...", "result_type":"task_complete"}\n\nRules:\n- Never invent a plugin action outside the list of connected plugins.\n- Any send/delete/pay/publish action must go through "action" — the system will pause for approval automatically, you don't need to ask permission yourself.\n- If you're missing information needed to proceed, use "question" instead of guessing.\n- Once the task is genuinely done, respond with "final_answer".`;
+  const connectedPlugins = [...new Set([...(Array.isArray(agent.allowed_plugins) ? agent.allowed_plugins : []), ...BUILT_IN_TOOLS])];
+  return `${agent.system_prompt}\n\n${skillsBlock}\n\nYou can use these plugins/tools: ${connectedPlugins.join(", ") || "(none connected)"}\n\nBUILT-IN FILE TOOL: You have a real built-in \"files\" tool. Use it whenever the user asks you to create, read, list, view, or edit files. Actions are: create_file, read_file, list_files, edit_file. For create_file/edit_file use params {name, content}; read_file uses {fileId} or {name}; list_files needs no params. Supported generated formats include txt, md, json, csv, html, docx, xlsx, and pdf. The file tool actually writes to Agentie's file store; never claim a file was created unless the tool result is successful. After a successful file action, use a concise final answer that tells the user what happened and includes the returned file metadata when useful.\n\nLAST30DAYS TOOL: You also have a real built-in \"last30days\" research tool. Use action \"research\" with params {topic} when current last-30-days research is needed.\n\nSkills determine HOW you approach a task (how you plan, review, communicate). Plugins/tools determine WHAT capabilities you have. Apply skill guidance regardless of which tool is used.\n\nKnown facts about how this user works:\n${memoryBlock}\n\nRespond with ONLY a single JSON object, no other text, matching one of these shapes:\n{\"type\":\"action\",\"plugin_id\":\"files\",\"action\":\"create_file\",\"params\":{\"name\":\"example.pdf\",\"content\":\"...\"},\"description\":\"Create the requested file\"}\n{\"type\":\"action\",\"plugin_id\":\"gmail\",\"action\":\"send_email\",\"params\":{...},\"description\":\"short human description of what this does\"}\n{\"type\":\"question\",\"question\":\"...\", \"options\":[\"A\",\"B\"]}\n{\"type\":\"handoff\",\"to_agent_name\":\"...\", \"note\":\"context summary for the receiving agent\"}\n{\"type\":\"final_answer\",\"text\":\"...\", \"result_type\":\"task_complete\"}\n\nRules:\n- Never invent an external plugin action outside the connected plugins. Built-in files and last30days are always available.\n- Any send/delete/pay/publish action must go through action; the system will pause for approval automatically.\n- File creation/editing is a real action. Do not merely describe how to create the file.\n- If you are missing information needed to proceed, use question instead of guessing.\n- Once the task is genuinely done, respond with final_answer.`;
 }
 
 function parseStep(text) { try { const jsonMatch = text.match(/\{[\s\S]*\}/); if (!jsonMatch) return null; return JSON.parse(jsonMatch[0]); } catch { return null; } }
@@ -163,7 +160,7 @@ async function failTask(taskId, message) { await supabaseAdmin.from("tasks").upd
 
 async function handleHandoff({ fromAgent, task, step }) {
   const { data: toAgent } = await supabaseAdmin.from("agents").select("*").eq("user_id", task.user_id).ilike("name", step.to_agent_name).single();
-  if (!toAgent) { await failTask(task.id, `Tried to hand off to "${step.to_agent_name}" but no such agent exists.`); return; }
+  if (!toAgent) { await failTask(task.id, `Tried to hand off to \"${step.to_agent_name}\" but no such agent exists.`); return; }
   const { data: newTask } = await supabaseAdmin.from("tasks").insert({ user_id: task.user_id, agent_id: toAgent.id, instruction: step.note || task.instruction, status: "pending", source: "handoff", context: { conversation: task.context?.conversation || [] } }).select().single();
   if (!newTask) { await failTask(task.id, "Failed to create handoff task."); return; }
   await supabaseAdmin.from("task_handoffs").insert({ from_agent_id: fromAgent.id, to_agent_id: toAgent.id, task_id: newTask.id, note: step.note, context_summary: step.note || task.instruction });
@@ -174,7 +171,7 @@ async function extractMemory({ agent, task, conversation }) {
   try {
     const { fastReply: extract } = await import("./openrouter.js");
     const transcript = conversation.map((m) => `${m.role}: ${m.content}`).join("\n").slice(0, 3000);
-    const raw = await extract({ instruction: `From this finished task, extract ONE short fact worth remembering for next time, in the form "key: value". If nothing is worth remembering, respond with exactly "NONE".\n\n${transcript}`, agentName: agent.name, userId: task.user_id, agentId: agent.id, taskId: task.id });
+    const raw = await extract({ instruction: `From this finished task, extract ONE short fact worth remembering for next time, in the form \"key: value\". If nothing is worth remembering, respond with exactly \"NONE\".\n\n${transcript}`, agentName: agent.name, userId: task.user_id, agentId: agent.id, taskId: task.id });
     if (raw && !raw.trim().toUpperCase().startsWith("NONE") && raw.includes(":")) {
       const [key, ...rest] = raw.split(":");
       await supabaseAdmin.from("agent_memory").upsert({ agent_id: agent.id, key: key.trim().slice(0, 100), value: rest.join(":").trim().slice(0, 500) }, { onConflict: "agent_id,key" });
