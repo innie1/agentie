@@ -1,22 +1,28 @@
-// ============================================================================
-// AGENTIE BACKEND SERVER ENTRY POINT (SPEC 1, 2, 3, 4)
-// ============================================================================
-
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import { requireAuth } from './lib/authMiddleware.js';
+import pluginsRouter, { oauthCallbackHandler } from './routes/plugins.js';
+import agentsRouter from './routes/agents.js';
+import tasksRouter from './routes/tasks.js';
 import { apiRouter } from './routes/api.js';
 import { cronScheduler } from './services/cronScheduler.js';
 import { refreshModelsCatalog } from './services/openRouterService.js';
 import { refreshExpiringTokens } from './services/pluginService.js';
 
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || process.env.SERVER_PORT || 4000;
 
 app.use(cors());
 app.use(express.json());
 
-// API Routes
+// OAuth callback must NOT require auth — provider redirects browser directly here
+app.get("/api/plugins/callback", oauthCallbackHandler);
+
+// Mounted API Routes
+app.use("/api/plugins", requireAuth, pluginsRouter);
+app.use("/api/agents", requireAuth, agentsRouter);
+app.use("/api/tasks", requireAuth, tasksRouter);
 app.use('/api', apiRouter);
 
 // Health Check

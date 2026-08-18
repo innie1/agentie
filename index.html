@@ -32,6 +32,7 @@
     
     <!-- Tailwind CSS with Forms -->
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
     <link href="style.css" rel="stylesheet"/>
@@ -2298,7 +2299,15 @@
                         // Interactive Handler 1: Approval Prompt (Approve / Edit / Reject)
                         const approveBtn = row.querySelector('.approval-btn-approve');
                         if (approveBtn) {
-                            approveBtn.addEventListener('click', () => {
+                            approveBtn.addEventListener('click', async () => {
+                                const taskId = msg.task_id || (msg.result_payload && msg.result_payload.action_id);
+                                if (taskId) {
+                                    try {
+                                        await fetch(`http://localhost:4000/api/tasks/${taskId}/approve`, { method: 'POST' });
+                                    } catch (err) {
+                                        console.warn('Approve task request error:', err);
+                                    }
+                                }
                                 if (msg.result_payload) msg.result_payload.status = 'approved';
                                 renderMainWorkspace(agent);
                                 setTimeout(() => {
@@ -2314,7 +2323,15 @@
 
                         const rejectBtn = row.querySelector('.approval-btn-reject');
                         if (rejectBtn) {
-                            rejectBtn.addEventListener('click', () => {
+                            rejectBtn.addEventListener('click', async () => {
+                                const taskId = msg.task_id || (msg.result_payload && msg.result_payload.action_id);
+                                if (taskId) {
+                                    try {
+                                        await fetch(`http://localhost:4000/api/tasks/${taskId}/reject`, { method: 'POST' });
+                                    } catch (err) {
+                                        console.warn('Reject task request error:', err);
+                                    }
+                                }
                                 if (msg.result_payload) msg.result_payload.status = 'rejected';
                                 renderMainWorkspace(agent);
                             });
@@ -2847,6 +2864,7 @@
             state.agents.unshift(newAgent);
             renderSidebar();
             selectAgent(id);
+            persistAgentToBackend(newAgent);
             return newAgent;
         }
 
@@ -3839,65 +3857,60 @@
                         btn.addEventListener('click', async (e) => {
                             e.stopPropagation();
                             if (plugin.added) {
-                                // Disconnect plugin
+                                // Disconnect plugin from backend
                                 try {
-                                    await fetch(`http://localhost:4000/api/user-plugins/${plugin.id}`, { method: 'DELETE' });
-                                } catch (err) {}
-                                plugin.added = false;
-                                updatePluginsBadges();
-                                renderPlugins();
+                                    await fetch(`http://localhost:4000/api/plugins/${plugin.id}`, { method: 'DELETE' });
+                                    plugin.added = false;
+                                    updatePluginsBadges();
+                                    renderPlugins();
+                                } catch (err) {
+                                    console.warn('Plugin disconnect error:', err);
+                                }
                             } else {
-                                // Real OAuth or API Key connect flow
+                                // Start real backend OAuth or API Key connect flow
                                 const isApiKey = ['hubspot', 'stripe', 'postgres'].includes(plugin.id);
                                 if (isApiKey) {
-                                    const key = prompt(`Enter your API Key or Token for ${plugin.name}:`);
+                                    const key = prompt(`Enter your API Key for ${plugin.name}:`);
                                     if (!key || !key.trim()) return;
                                     btn.textContent = 'Connecting...';
                                     try {
-                                        const res = await fetch(`http://localhost:4000/api/plugins/${plugin.id}/connect-key`, {
+                                        const res = await fetch(`http://localhost:4000/api/plugins/${plugin.id}/add-api-key`, {
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json' },
                                             body: JSON.stringify({ api_key: key.trim() })
                                         });
                                         const data = await res.json();
-                                        if (data.success) {
+                                        if (data && data.user_plugin) {
                                             plugin.added = true;
+                                            updatePluginsBadges();
+                                            renderPlugins();
                                         } else {
                                             alert(`Connection failed: ${data.error || 'Invalid API key'}`);
+                                            renderPlugins();
                                         }
                                     } catch (err) {
-                                        plugin.added = true; // graceful local fallback
+                                        alert(`Connection error: ${err.message}`);
+                                        renderPlugins();
                                     }
-                                    updatePluginsBadges();
-                                    renderPlugins();
                                 } else {
-                                    // OAuth flow
-                                    btn.textContent = 'Authenticating...';
+                                    // Real OAuth flow: POST /api/plugins/:pluginId/start
+                                    btn.textContent = 'Connecting...';
                                     try {
-                                        const res = await fetch(`http://localhost:4000/api/plugins/${plugin.id}/oauth/start`, {
+                                        const res = await fetch(`http://localhost:4000/api/plugins/${plugin.id}/start`, {
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json' }
                                         });
                                         const data = await res.json();
-                                        if (data && data.state) {
-                                            // Complete simulated token exchange
-                                            const cbRes = await fetch('http://localhost:4000/api/plugins/callback', {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ code: 'oauth_code_' + Date.now(), state: data.state })
-                                            });
-                                            const cbData = await cbRes.json();
-                                            if (cbData.success) {
-                                                plugin.added = true;
-                                            }
+                                        if (data && data.authorize_url) {
+                                            window.location.href = data.authorize_url;
                                         } else {
-                                            plugin.added = true;
+                                            alert(data.error || 'OAuth app not configured yet. Please set client id/secret in server .env');
+                                            renderPlugins();
                                         }
                                     } catch (err) {
-                                        plugin.added = true;
+                                        alert(`Connection error: ${err.message}`);
+                                        renderPlugins();
                                     }
-                                    updatePluginsBadges();
-                                    renderPlugins();
                                 }
                             }
                         });
@@ -3914,6 +3927,26 @@
             const addedCount = state.plugins.filter(p => p.added).length;
             if (dom.yoursPluginsCount) {
                 dom.yoursPluginsCount.textContent = addedCount;
+            }
+        }
+
+        async function syncPluginsWithBackend() {
+            try {
+                const res = await fetch('http://localhost:4000/api/plugins');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data && Array.isArray(data.plugins)) {
+                    data.plugins.forEach(p => {
+                        const match = state.plugins.find(item => item.id === p.id);
+                        if (match) {
+                            match.added = !!p.added;
+                        }
+                    });
+                    updatePluginsBadges();
+                    renderPlugins();
+                }
+            } catch (err) {
+                console.warn('Backend plugin sync status:', err.message);
             }
         }
 
@@ -4251,6 +4284,117 @@
         function closeDrawerSettings() {
             if (dom.rightSettingsView) dom.rightSettingsView.classList.add('hidden');
             if (dom.rightScreenView) dom.rightScreenView.classList.remove('hidden');
+        }
+
+        // =========================================================================
+        // BACKEND & SUPABASE REALTIME SYNCHRONIZATION
+        // =========================================================================
+        async function persistAgentToBackend(agent) {
+            if (!agent) return;
+            try {
+                const payload = {
+                    role: agent.role || 'General Assistant',
+                    goal: agent.goal || 'Execute workplace tasks and manage automated workflows.',
+                    allowed_plugins: agent.allowed_plugins || ['gmail', 'gcal', 'notion']
+                };
+                if (agent.name && !agent.name.startsWith('New Agentie') && agent.name_source === 'user') {
+                    payload.name = agent.name;
+                }
+                const res = await fetch('http://localhost:4000/api/agents', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.agent) {
+                        agent.backend_id = data.agent.id;
+                        agent.id = data.agent.id;
+                        if (data.agent.name) {
+                            agent.name = data.agent.name;
+                            dom.topAgentTitle.textContent = agent.name;
+                            dom.chatInput.placeholder = `Message ${agent.name}`;
+                            dom.screenCaptionText.textContent = `${agent.name}'s screen`;
+                        }
+                        renderSidebar();
+                    }
+                }
+            } catch (err) {
+                console.warn('Backend agent persist status:', err.message);
+            }
+        }
+
+        let realtimeChannel = null;
+        function initSupabaseRealtime() {
+            if (window.supabase && typeof window.supabase.createClient === 'function') {
+                try {
+                    const sbUrl = localStorage.getItem('supabase_url') || 'https://cugaysbdpfzunwwlbfsn.supabase.co';
+                    const sbAnon = localStorage.getItem('supabase_anon_key') || 'mock_anon_key';
+                    const client = window.supabase.createClient(sbUrl, sbAnon);
+                    
+                    realtimeChannel = client.channel('public:tasks')
+                        .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload) => {
+                            const task = payload.new;
+                            if (!task) return;
+                            const agent = state.agents.find(a => a.id === task.agent_id || a.backend_id === task.agent_id);
+                            if (!agent) return;
+
+                            if (task.status === 'in_progress' || task.status === 'pending') {
+                                agent.isWorking = true;
+                                renderSidebar();
+                                if (dom.topAgentAvatarWrap) {
+                                    dom.topAgentAvatarWrap.innerHTML = getOrbAvatarHtml(agent.orbColor, 'xs', true, agent.avatarShape || agent.orbColor);
+                                }
+                                renderMainWorkspace(agent);
+                            } else if (task.status === 'needs_approval') {
+                                agent.isWorking = false;
+                                agent.messages.push({
+                                    sender: 'agent',
+                                    task_id: task.id,
+                                    result_type: 'irreversible_pending',
+                                    result_payload: task.result_payload || { action_desc: task.instruction, status: 'pending' },
+                                    text: `Approval Required: ${task.instruction}`
+                                });
+                                renderSidebar();
+                                if (dom.topAgentAvatarWrap) {
+                                    dom.topAgentAvatarWrap.innerHTML = getOrbAvatarHtml(agent.orbColor, 'xs', false, agent.avatarShape || agent.orbColor);
+                                }
+                                renderMainWorkspace(agent);
+                            } else if (task.status === 'done') {
+                                agent.isWorking = false;
+                                agent.messages.push({
+                                    sender: 'agent',
+                                    task_id: task.id,
+                                    result_type: task.result_type || 'task_complete',
+                                    result_payload: task.result_payload || {},
+                                    text: task.instruction
+                                });
+                                renderSidebar();
+                                if (dom.topAgentAvatarWrap) {
+                                    dom.topAgentAvatarWrap.innerHTML = getOrbAvatarHtml(agent.orbColor, 'xs', false, agent.avatarShape || agent.orbColor);
+                                }
+                                renderMainWorkspace(agent);
+                            } else if (task.status === 'failed') {
+                                agent.isWorking = false;
+                                agent.messages.push({
+                                    sender: 'agent',
+                                    task_id: task.id,
+                                    result_type: 'failure',
+                                    result_payload: task.result_payload || { error_title: 'Execution Error', reason: 'Task execution failed' },
+                                    text: 'Execution Error'
+                                });
+                                renderSidebar();
+                                if (dom.topAgentAvatarWrap) {
+                                    dom.topAgentAvatarWrap.innerHTML = getOrbAvatarHtml(agent.orbColor, 'xs', false, agent.avatarShape || agent.orbColor);
+                                }
+                                renderMainWorkspace(agent);
+                            }
+                        })
+                        .subscribe();
+                } catch (err) {
+                    console.warn('Realtime subscription initializing:', err.message);
+                }
+            }
         }
 
         function init() {
@@ -4958,6 +5102,8 @@
             selectAgent(null);
             updateSendButtonState();
             updatePluginsBadges();
+            syncPluginsWithBackend();
+            initSupabaseRealtime();
         }
 
         // Initialize immediately

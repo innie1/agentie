@@ -1,0 +1,22 @@
+-- OPTIONAL BUT RECOMMENDED: Supabase Database Webhook
+-- This makes task pickup resilient even if the server's direct call to the worker
+-- fails (network blip, worker mid-deploy, etc). Set this up in the Supabase dashboard:
+--
+-- Dashboard → Database → Webhooks → Create a new webhook
+--   Name: notify-worker-on-new-task
+--   Table: tasks
+--   Events: INSERT
+--   Type: HTTP Request
+--   URL: https://<your-railway-worker-url>/enqueue
+--   Method: POST
+--   Headers: Content-Type: application/json
+--   Payload: {"taskId": "{{record.id}}"}
+--
+-- (Supabase's webhook UI lets you template the payload from the inserted row —
+-- exact templating syntax may differ slightly by dashboard version, check the
+-- "HTTP Request" webhook docs in your project for the current field name.)
+--
+-- With this in place, /enqueue gets called twice in the success path (once directly
+-- from the server, once from this webhook) — that's fine, BullMQ + a small
+-- idempotency check in agentLoop.js (status must be 'pending' or paused to run)
+-- means a duplicate enqueue is a harmless no-op, not a duplicate execution.
