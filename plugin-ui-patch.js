@@ -1,5 +1,5 @@
-// Agentie plugin compatibility layer. Uses the existing marketplace UI; it only fills
-// missing capability metadata and routes API-key plugins through the real backend.
+// Agentie plugin compatibility layer. Uses the existing marketplace UI; it keeps the
+// existing visual design while making the frontend catalog authoritative from the backend.
 (function () {
   const API_KEY_PLUGINS = new Set(['agentmail','discord','telegram','whatsapp','twilio','hubspot','postgres','stripe','shopify','aws']);
   const FIELD_DEFS = {
@@ -26,8 +26,8 @@
   function ensureAgentMail() {
     if (typeof state === 'undefined' || !Array.isArray(state.plugins)) return false;
     if (!state.plugins.some(p => p.id === 'agentmail')) {
-      state.plugins.splice(6, 0, {
-        id:'agentmail', name:'AgentMail', section:'Email & Communication',
+      state.plugins.push({
+        id:'agentmail', name:'AgentMail', section:'Email & Communication', auth_type:'api_key',
         desc:'Give agents their own email inboxes and identities for sending, receiving, and replying to email.',
         added:false, keywords:['agentmail','agent mail','agent inbox','agent email','email identity']
       });
@@ -43,6 +43,54 @@
       if (id === 'agentmail') return '<img src="https://cdn.simpleicons.org/maildotru/ffffff" alt="AgentMail" class="w-5 h-5 object-contain" loading="lazy" onerror="this.outerHTML=\'<span class=\\\'material-symbols-outlined text-[18px] text-white\\\'>mail</span>\'"/>';
       return original(id);
     };
+  }
+
+  // The backend is the source of truth. Merge it into the existing UI state so
+  // new plugins can never silently exist only in the backend. Existing local
+  // metadata is preserved for UI wording/keywords while auth/category/status
+  // from the backend take precedence when available.
+  async function syncBackendCatalog() {
+    try {
+      if (typeof state === 'undefined' || !Array.isArray(state.plugins)) return;
+      const res = await api('api/plugins');
+      if (!res.ok) return;
+      const payload = await res.json().catch(() => ({}));
+      const remote = Array.isArray(payload.plugins) ? payload.plugins : [];
+      for (const remotePlugin of remote) {
+        if (!remotePlugin || !remotePlugin.id) continue;
+        const local = state.plugins.find(p => p.id === remotePlugin.id);
+        if (local) {
+          Object.assign(local, {
+            name: remotePlugin.name || local.name,
+            section: remotePlugin.category || local.section,
+            auth_type: remotePlugin.auth_type || local.auth_type,
+            desc: remotePlugin.description || local.desc,
+            added: !!remotePlugin.added,
+            added_status: remotePlugin.added_status || null,
+            logo: remotePlugin.logo || local.logo,
+            icon_url: remotePlugin.icon_url || local.icon_url
+          });
+        } else {
+          state.plugins.push({
+            id: remotePlugin.id,
+            name: remotePlugin.name || remotePlugin.id,
+            section: remotePlugin.category || 'Other',
+            auth_type: remotePlugin.auth_type || 'oauth',
+            desc: remotePlugin.description || '',
+            added: !!remotePlugin.added,
+            added_status: remotePlugin.added_status || null,
+            logo: remotePlugin.logo || null,
+            icon_url: remotePlugin.icon_url || null,
+            keywords: [String(remotePlugin.name || remotePlugin.id).toLowerCase()]
+          });
+        }
+      }
+      ensureAgentMail();
+      if (typeof renderPlugins === 'function') renderPlugins();
+      if (typeof updatePluginsBadges === 'function') updatePluginsBadges();
+    } catch (err) {
+      console.warn('[Agentie] plugin catalog sync:', err.message || err);
+    }
   }
 
   async function connectApiPlugin(plugin) {
@@ -61,6 +109,7 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) throw new Error(data.error || 'Credential validation failed');
       plugin.added = true;
+      plugin.added_status = 'active';
       if (typeof updatePluginsBadges === 'function') updatePluginsBadges();
       if (typeof renderPlugins === 'function') renderPlugins();
     } catch (err) {
@@ -73,8 +122,6 @@
     if (typeof state === 'undefined' || typeof renderPlugins !== 'function') return false;
     ensureAgentMail();
     addLogo();
-    // Existing renderer only treats three API-key plugins specially. Capture the
-    // click before its listener so every API-key plugin gets the same real flow.
     if (!document.__agentieApiPluginPatch) {
       document.addEventListener('click', function (event) {
         const btn = event.target && event.target.closest ? event.target.closest('.toggle-plugin-btn') : null;
@@ -91,6 +138,7 @@
     }
     renderPlugins();
     if (typeof updatePluginsBadges === 'function') updatePluginsBadges();
+    syncBackendCatalog();
     return true;
   }
 
