@@ -33,10 +33,6 @@ window.agentieApiUrl = function(path) { var base = window.AGENTIE_API_URL.replac
   }, true);
 })();
 
-// The legacy frontend sends every message to Supabase's tasks surface. Route
-// that single write through /api/tasks so its existing classifier can send
-// normal conversation to fastChat without creating a task row. Real task
-// reads and explicit task inserts remain backed by Supabase.
 (function installConversationBridge() {
   var installed = false, originalGetClient, chatResults = new Map();
   function headers() {
@@ -92,10 +88,16 @@ window.agentieApiUrl = function(path) { var base = window.AGENTIE_API_URL.replac
   setTimeout(function(){clearInterval(timer);},20000);
 })();
 
-// Load the response-only presentation normalizer without changing the UI.
 (function loadResponseFormatter() {
   var script = document.createElement('script');
   script.src = '/response-format.js?v=1';
+  script.async = true;
+  document.head.appendChild(script);
+})();
+
+(function loadPluginCompatibilityLayer() {
+  var script = document.createElement('script');
+  script.src = '/plugin-ui-patch.js?v=2';
   script.async = true;
   document.head.appendChild(script);
 })();
