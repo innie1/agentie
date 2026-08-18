@@ -20,9 +20,39 @@ router.post("/", async (req, res) => {
   const { agent_id, instruction } = req.body;
   if (!agent_id || !instruction) return res.status(400).json({ error: "agent_id and instruction are required" });
 
+  // Build conversation context from recent completed/failed tasks for this agent.
+  // This makes follow-up messages understand what was said before without putting
+  // chat history into the frontend or exposing server credentials.
+  const { data: previousTasks, error: historyError } = await supabaseAdmin
+    .from("tasks")
+    .select("instruction, result, result_type, result_payload, status, created_at")
+    .eq("user_id", userId)
+    .eq("agent_id", agent_id)
+    .order("created_at", { ascending: false })
+    .limit(12);
+
+  if (historyError) console.warn("[tasks] conversation history load failed:", historyError.message);
+
+  const history = (previousTasks || [])
+    .reverse()
+    .flatMap((t) => {
+      const messages = [];
+      if (t.instruction) messages.push({ role: "user", content: t.instruction });
+      const assistantText = t.result || t.result_payload?.text || t.result_payload?.summary;
+      if (assistantText) messages.push({ role: "assistant", content: String(assistantText).slice(0, 4000) });
+      return messages;
+    })
+    .slice(-12);
+
   const { data: task, error } = await supabaseAdmin
     .from("tasks")
-    .insert({ user_id: userId, agent_id, instruction, status: "pending" })
+    .insert({
+      user_id: userId,
+      agent_id,
+      instruction,
+      status: "pending",
+      context: { conversation: history },
+    })
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
@@ -39,7 +69,7 @@ router.post("/", async (req, res) => {
 
       if (agentError || !agent) throw new Error(agentError?.message || "Agent not found");
 
-      const { text, model } = await fastChat({ agent, message: instruction });
+      const { text, model } = await fastChat({ agent, message: instruction, history });
       const { data: completed, error: completeError } = await supabaseAdmin
         .from("tasks")
         .update({
@@ -112,7 +142,7 @@ router.post("/:id/approve", async (req, res) => {
 router.post("/:id/reject", async (req, res) => {
   const { data: task, error } = await supabaseAdmin
     .from("tasks")
-    .update({ status: "cancelled", updated_at: new Date().toISOString() })
+    .update({ status: "failed", updated_at: new Date().toISOString() })
     .eq("id", req.params.id)
     .eq("user_id", req.user.id)
     .select()
