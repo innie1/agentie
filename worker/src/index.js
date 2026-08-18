@@ -25,8 +25,6 @@ app.post("/enqueue", async (req, res) => {
   }
 });
 
-// Keep health checks fast and dependency-light. Railway must be able to reach
-// this endpoint even when Supabase/Redis/OpenRouter are temporarily unavailable.
 app.get("/health", (req, res) => {
   res.json({
     ok: true,
@@ -39,8 +37,10 @@ app.get("/health", (req, res) => {
   });
 });
 
-const PORT = process.env.WORKER_PORT || 4100;
-app.listen(PORT, () => console.log(`[worker] enqueue endpoint listening on :${PORT}`));
+// Railway provides PORT for the service proxy. Fall back to the existing
+// worker-specific port for local/self-hosted runs.
+const PORT = Number(process.env.PORT || process.env.WORKER_PORT || 4100);
+app.listen(PORT, "0.0.0.0", () => console.log(`[worker] enqueue endpoint listening on :${PORT}`));
 
 const bullWorker = startWorker(async ({ taskId }) => {
   console.log(`[worker] picked up task ${taskId}`);
