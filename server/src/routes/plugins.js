@@ -13,6 +13,7 @@ const DEFAULT_PLUGINS = [
   { id: 'slack', name: 'Slack', category: 'Featured', auth_type: 'oauth', description: 'Monitor channels, send thread replies, and dispatch webhooks to your team.' },
   { id: 'github', name: 'GitHub', category: 'Featured', auth_type: 'oauth', description: 'Inspect pull requests, review commits, and query code repositories.' },
   { id: 'notion', name: 'Notion', category: 'Featured', auth_type: 'oauth', description: 'Sync knowledge bases, read workspace pages, and draft formatted docs.' },
+  { id: 'agentmail', name: 'AgentMail', category: 'Featured', auth_type: 'api_key', description: 'Give agents their own email inboxes so they can send, receive, search, and reply as themselves.' },
   { id: 'granola', name: 'Granola', category: 'Featured', auth_type: 'oauth', description: 'Access real-time meeting notes, transcripts, and AI action items.' },
   { id: 'outlook', name: 'Microsoft Outlook', category: 'Email & Communication', auth_type: 'oauth', description: 'Connect to Microsoft 365 Exchange mailboxes to read and draft emails.' },
   { id: 'discord', name: 'Discord', category: 'Email & Communication', auth_type: 'api_key', description: 'Post notifications, manage community channels, and interact via bot tokens.' },
@@ -40,17 +41,17 @@ const DEFAULT_PLUGINS = [
 
 router.get("/", async (req, res) => {
   const userId = req.user.id;
-  let plugins = [];
+  let dbPlugins = [];
   let addedMap = {};
   try {
-    const { data: dbPlugins, error: pErr } = await supabaseAdmin.from("plugins").select("*").eq("status", "active");
-    if (!pErr && dbPlugins?.length) {
-      plugins = dbPlugins;
-      const { data: userPlugins } = await supabaseAdmin.from("user_plugins").select("plugin_id,status").eq("user_id", userId);
-      addedMap = Object.fromEntries((userPlugins || []).map((p) => [p.plugin_id, p]));
-    } else plugins = DEFAULT_PLUGINS;
-  } catch { plugins = DEFAULT_PLUGINS; }
-  res.json({ plugins: plugins.map(p => ({ ...p, added: !!addedMap[p.id], added_status: addedMap[p.id]?.status ?? null })) });
+    const result = await supabaseAdmin.from("plugins").select("*").eq("status", "active");
+    dbPlugins = result.data || [];
+    const { data: userPlugins } = await supabaseAdmin.from("user_plugins").select("plugin_id,status").eq("user_id", userId);
+    addedMap = Object.fromEntries((userPlugins || []).map((p) => [p.plugin_id, p]));
+  } catch {}
+  const byId = new Map(DEFAULT_PLUGINS.map(p => [p.id, p]));
+  for (const p of dbPlugins) byId.set(p.id, { ...byId.get(p.id), ...p });
+  res.json({ plugins: [...byId.values()].map(p => ({ ...p, added: !!addedMap[p.id], added_status: addedMap[p.id]?.status ?? null })) });
 });
 
 router.post("/:pluginId/start", async (req, res) => {
@@ -85,13 +86,7 @@ export async function oauthCallbackHandler(req, res) {
     const parsed = provider.parseToken(tokenRes.data);
     if (!parsed.access_token) throw new Error("Provider did not return an access_token");
     const expiresAt = parsed.expires_in ? new Date(Date.now() + parsed.expires_in * 1000).toISOString() : null;
-    const credentials = {
-      type: "oauth",
-      access_token: encrypt(parsed.access_token),
-      refresh_token: parsed.refresh_token ? encrypt(parsed.refresh_token) : null,
-      token_type: parsed.token_type || "Bearer",
-      expires_at: expiresAt,
-    };
+    const credentials = { type: "oauth", access_token: encrypt(parsed.access_token), refresh_token: parsed.refresh_token ? encrypt(parsed.refresh_token) : null, token_type: parsed.token_type || "Bearer", expires_at: expiresAt };
     const { error: saveErr } = await supabaseAdmin.from("user_plugins").upsert({ user_id: pending.user_id, plugin_id: pending.plugin_id, credentials, status: "active" }, { onConflict: "user_id,plugin_id" });
     if (saveErr) throw saveErr;
     await supabaseAdmin.from("pending_auth").delete().eq("id", pending.id);
@@ -108,8 +103,9 @@ router.post("/:pluginId/add-api-key", async (req, res) => {
   const { api_key, credentials } = req.body || {};
   const supplied = credentials && typeof credentials === "object" ? credentials : (api_key ? { api_key } : null);
   if (!supplied) return res.status(400).json({ error: "credentials are required" });
-  const { data: plugin, error } = await supabaseAdmin.from("plugins").select("*").eq("id", pluginId).single();
-  if (error || !plugin) return res.status(404).json({ error: "Unknown plugin" });
+  const dbResult = await supabaseAdmin.from("plugins").select("*").eq("id", pluginId).maybeSingle();
+  const plugin = dbResult.data || DEFAULT_PLUGINS.find(p => p.id === pluginId);
+  if (!plugin) return res.status(404).json({ error: "Unknown plugin" });
   if (plugin.auth_type !== "api_key") return res.status(400).json({ error: "This plugin uses OAuth, not an API key" });
   const valid = await testApiKey(pluginId, supplied);
   if (!valid.ok) return res.status(400).json({ error: valid.error || "Credential validation failed" });
@@ -128,6 +124,11 @@ router.delete("/:pluginId", async (req, res) => {
 async function testApiKey(pluginId, c) {
   try {
     switch (pluginId) {
+      case "agentmail": {
+        if (!c.api_key) return { ok: false, error: "AgentMail API key is required" };
+        const r = await axios.get("https://api.agentmail.to/v0/inboxes", { headers: { Authorization: `Bearer ${c.api_key}` }, params: { limit: 1 } });
+        return { ok: r.status === 200 };
+      }
       case "stripe": {
         if (!c.api_key) return { ok: false, error: "Stripe secret key is required" };
         const r = await axios.get("https://api.stripe.com/v1/account", { auth: { username: c.api_key, password: "" } });
