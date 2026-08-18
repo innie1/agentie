@@ -130,6 +130,10 @@
                         <span class="material-symbols-outlined text-[18px]">power</span>
                         <span class="sidebar-hide-on-collapse">Plugins</span>
                     </button>
+                    <button id="sidebar-skills-btn" class="w-full flex items-center gap-2.5 px-2 py-2 text-text-muted hover:text-white hover:bg-card-bg rounded-lg text-[13px] transition-colors group cursor-pointer" title="Skills Library">
+                        <span class="material-symbols-outlined text-[18px]">auto_awesome</span>
+                        <span class="sidebar-hide-on-collapse">Skills</span>
+                    </button>
 
                     <!-- Profile Trigger Button -->
                     <div id="profile-footer-btn" class="flex items-center gap-2.5 px-2 py-1.5 cursor-pointer hover:bg-card-bg rounded-lg transition-colors group" title="Account">
@@ -545,6 +549,20 @@
                             <p class="text-[11px] text-text-muted">Checklist of your Added plugins. The agent can only execute tools toggled on here.</p>
                         </div>
                         <div id="settings-plugins-checklist" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5"></div>
+                    </section>
+
+                    <!-- 2.5 SKILLS (CORE & LIBRARY) -->
+                    <section id="sec-skills" class="space-y-3">
+                        <div class="flex items-center justify-between border-b border-border-subtle/60 pb-2">
+                            <div>
+                                <h3 class="text-[13px] font-semibold text-white">Skills</h3>
+                                <p class="text-[11px] text-text-muted">Core reasoning skills are always active. Toggle installed library skills for this agent.</p>
+                            </div>
+                            <button id="open-skills-library-from-settings" class="text-[11px] text-[#10A8FF] hover:underline font-medium flex items-center gap-1 cursor-pointer">
+                                <span class="material-symbols-outlined text-[13px]">auto_awesome</span> Skills Library
+                            </button>
+                        </div>
+                        <div id="settings-skills-checklist" class="space-y-3"></div>
                     </section>
 
                     <!-- 3. SYSTEM PROMPT / BEHAVIOR -->
@@ -1156,6 +1174,47 @@
     </div>
 
     <!-- ========================================================================= -->
+    <!-- 5.5 SKILLS LIBRARY MODAL (MIRRORS PLUGINS PAGE PATTERN)                    -->
+    <!-- ========================================================================= -->
+    <div id="skills-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-card-bg border border-border-subtle rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-fade-in">
+            
+            <div class="flex items-center justify-between p-6 pb-4 flex-shrink-0">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-lg bg-[#10A8FF]/15 border border-[#10A8FF]/30 flex items-center justify-center text-[#10A8FF]">
+                        <span class="material-symbols-outlined text-[18px]">auto_awesome</span>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-bold text-white tracking-tight">Skills Library</h2>
+                        <p class="text-[11.5px] text-text-muted">Core skills are built-in. Add library skills to expand agent reasoning.</p>
+                    </div>
+                </div>
+                <button id="close-skills-btn" class="text-text-muted hover:text-white p-1 rounded-full hover:bg-card-hover transition-colors cursor-pointer">
+                    <span class="material-symbols-outlined text-[18px]">close</span>
+                </button>
+            </div>
+
+            <!-- Controls (Tabs + Search) -->
+            <div class="px-6 py-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-border-subtle flex-shrink-0">
+                <div class="flex items-center gap-1 bg-input-bg p-1 rounded-lg border border-border-subtle">
+                    <button id="tab-skills-marketplace" class="px-3 py-1 rounded-md text-[12px] font-medium bg-card-hover text-white transition-colors cursor-pointer">Marketplace</button>
+                    <button id="tab-skills-yours" class="px-3 py-1 rounded-md text-[12px] font-medium text-text-muted hover:text-white transition-colors cursor-pointer">Installed (<span id="yours-skills-count">0</span>)</button>
+                </div>
+
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <div class="relative flex-1 sm:w-56">
+                        <span class="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted text-[15px]">search</span>
+                        <input id="skills-search-input" type="text" placeholder="Search skills" class="w-full bg-input-bg border border-border-subtle rounded-lg pl-8 pr-3 py-1 text-[12px] text-text-primary placeholder-text-muted focus:outline-none focus:border-border-dark"/>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Content (Scrollable Grid) -->
+            <div class="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-6" id="skills-modal-list"></div>
+        </div>
+    </div>
+
+    <!-- ========================================================================= -->
     <!-- 6. TEACH A ROUTINE / CREATE ROUTINE MODAL                                 -->
     <!-- ========================================================================= -->
     <div id="teach-routine-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 hidden">
@@ -1365,6 +1424,24 @@
                 { id: 'stripe', name: 'Stripe Payments', section: 'Developer & Data', desc: 'Create invoices, look up customer subscriptions, and check billing history.', added: false, keywords: ['stripe', 'invoice', 'payment', 'charge', 'billing', 'subscription'] },
                 { id: 'shopify', name: 'Shopify Store', section: 'Developer & Data', desc: 'Manage e-commerce inventory, look up order statuses, and create products.', added: false, keywords: ['shopify', 'ecommerce', 'order', 'product', 'inventory'] },
                 { id: 'aws', name: 'AWS Cloud Services', section: 'Developer & Data', desc: 'Deploy serverless jobs, manage S3 storage buckets, and monitor CloudWatch.', added: false, keywords: ['aws', 's3', 'lambda', 'cloudwatch', 'serverless'] }
+            ],
+            skillsTab: 'marketplace',
+            skills: [
+                // Core Reasoning Skills (Always Active on Every Agent)
+                { id: 'planning', name: 'Planning', description: 'Breaks a goal into an ordered plan before acting.', tier: 'core', category: 'Reasoning', installed: true, instructions: 'Before taking any action, form a short ordered plan of the steps needed to complete the task.' },
+                { id: 'task_breakdown', name: 'Task Breakdown', description: 'Splits vague or large requests into concrete sub-tasks.', tier: 'core', category: 'Reasoning', installed: true, instructions: 'When an instruction is broad, vague, or multi-part, break it into concrete, individually completable sub-tasks.' },
+                { id: 'research', name: 'Research', description: 'Gathers information before acting instead of assuming.', tier: 'core', category: 'Reasoning', installed: true, instructions: 'When you lack a fact needed to complete the task correctly, gather it first using an available connected plugin.' },
+                { id: 'self_review', name: 'Self-Review', description: 'Checks its own output before finalizing.', tier: 'core', category: 'Reasoning', installed: true, instructions: 'Before returning a final_answer or taking an irreversible action, briefly review your own output against the original instruction.' },
+                { id: 'communication', name: 'Communication', description: 'Adapts tone and format to the audience and context.', tier: 'core', category: 'Reasoning', installed: true, instructions: 'Match tone and detail to who the output is for: keep internal notes brief and direct, client messages polished.' },
+                { id: 'delegation', name: 'Delegation', description: 'Recognizes when another agent is better suited and hands off cleanly.', tier: 'core', category: 'Reasoning', installed: true, instructions: 'If part of the task clearly belongs to a different agent, use a handoff instead of attempting it yourself.' },
+
+                // Library Skills (Optional, Installed Account-Wide, Enabled Per-Agent)
+                { id: 'marketing', name: 'Marketing', description: 'Copywriting, campaign ideas, and audience-aware messaging.', tier: 'library', category: 'Growth', installed: false, suggested_plugins: ['gmail'], instructions: 'When writing marketing content, lead with a clear benefit to the reader before features.' },
+                { id: 'coding', name: 'Coding', description: 'Writes, reviews, and explains code with engineering discipline.', tier: 'library', category: 'Technical', installed: false, suggested_plugins: ['github'], instructions: 'When writing code, prefer clear, working, minimal solutions over clever ones.' },
+                { id: 'finance', name: 'Finance', description: 'Handles budgets, invoices, and financial summaries carefully.', tier: 'library', category: 'Operations', installed: false, suggested_plugins: ['gmail'], instructions: 'Treat all numeric outputs as needing accuracy over speed — double-check arithmetic.' },
+                { id: 'sales', name: 'Sales', description: 'Outreach, follow-ups, and pipeline-aware communication.', tier: 'library', category: 'Growth', installed: false, suggested_plugins: ['gmail', 'slack'], instructions: 'When drafting outreach, keep it short, personalized to what is known, and end with one next step.' },
+                { id: 'data_analysis', name: 'Data Analysis', description: 'Summarizes and interprets numeric or tabular data honestly.', tier: 'library', category: 'Technical', installed: false, suggested_plugins: [], instructions: 'When presenting data, lead with the most important trend or number, not a full table dump.' },
+                { id: 'document_management', name: 'Document Management', description: 'Organizes, formats, and maintains documents consistently.', tier: 'library', category: 'Operations', installed: false, suggested_plugins: ['notion', 'gcal'], instructions: 'When creating or editing documents, keep formatting consistent with existing style.' }
             ]
         };
 
@@ -1440,6 +1517,8 @@
             statusBtnActive: document.getElementById('status-btn-active'),
             statusBtnPaused: document.getElementById('status-btn-paused'),
             settingsPluginsChecklist: document.getElementById('settings-plugins-checklist'),
+            settingsSkillsChecklist: document.getElementById('settings-skills-checklist'),
+            openSkillsLibraryFromSettings: document.getElementById('open-skills-library-from-settings'),
             regeneratePromptBtn: document.getElementById('regenerate-prompt-btn'),
             settingsGuardrailsList: document.getElementById('settings-guardrails-list'),
             settingsRoutinesList: document.getElementById('settings-routines-list'),
@@ -1466,6 +1545,15 @@
             tabYours: document.getElementById('tab-yours'),
             yoursPluginsCount: document.getElementById('yours-plugins-count'),
             pluginsSearchInput: document.getElementById('plugins-search-input'),
+
+            skillsModal: document.getElementById('skills-modal'),
+            sidebarSkillsBtn: document.getElementById('sidebar-skills-btn'),
+            closeSkillsBtn: document.getElementById('close-skills-btn'),
+            skillsModalList: document.getElementById('skills-modal-list'),
+            tabSkillsMarketplace: document.getElementById('tab-skills-marketplace'),
+            tabSkillsYours: document.getElementById('tab-skills-yours'),
+            yoursSkillsCount: document.getElementById('yours-skills-count'),
+            skillsSearchInput: document.getElementById('skills-search-input'),
 
             // Profile popover elements
             profileFooterBtn: document.getElementById('profile-footer-btn'),
@@ -2940,6 +3028,9 @@
                 });
             }
 
+            // 2.5 Skills (Core & Library)
+            renderAgentSettingsSkills(currentAgent);
+
             // 3. System Prompt
             dom.setAgentPrompt.value = currentAgent.system_prompt || `You are "${currentAgent.name}", specialized as a ${currentAgent.role}. Your goal is to execute workplace tasks with precision.`;
 
@@ -3947,6 +4038,295 @@
                 }
             } catch (err) {
                 console.warn('Backend plugin sync status:', err.message);
+            }
+        }
+
+        // =========================================================================
+        // SKILLS LIBRARY ENGINE (MIRRORS PLUGINS ENGINE PATTERN)
+        // =========================================================================
+        function getSkillIconSvg(id) {
+            const iconMap = {
+                'planning': 'event_note',
+                'task_breakdown': 'account_tree',
+                'research': 'travel_explore',
+                'self_review': 'fact_check',
+                'communication': 'forum',
+                'delegation': 'group_add',
+                'marketing': 'campaign',
+                'coding': 'terminal',
+                'finance': 'account_balance',
+                'sales': 'trending_up',
+                'data_analysis': 'monitoring',
+                'document_management': 'folder_shared'
+            };
+            const icon = iconMap[id] || 'auto_awesome';
+            return `<span class="material-symbols-outlined text-[18px] text-[#10A8FF]">${icon}</span>`;
+        }
+
+        function renderSkills() {
+            if (!dom.skillsModalList) return;
+            dom.skillsModalList.innerHTML = '';
+            const query = (dom.skillsSearchInput ? dom.skillsSearchInput.value : '').toLowerCase().trim();
+
+            let filtered = state.skills;
+            if (state.skillsTab === 'yours') {
+                filtered = filtered.filter(s => s.installed);
+            }
+            if (query) {
+                filtered = filtered.filter(s => s.name.toLowerCase().includes(query) || s.description.toLowerCase().includes(query) || s.category.toLowerCase().includes(query));
+            }
+
+            const categories = [
+                { key: 'Reasoning', title: 'Core Reasoning Skills (Always Active)' },
+                { key: 'Growth', title: 'Library Skills: Growth & Outreach' },
+                { key: 'Technical', title: 'Library Skills: Technical & Data' },
+                { key: 'Operations', title: 'Library Skills: Operations & Documents' }
+            ];
+
+            if (filtered.length === 0) {
+                dom.skillsModalList.innerHTML = `
+                    <div class="text-center py-12">
+                        <p class="text-[13px] text-text-muted font-medium">No skills found.</p>
+                        <p class="text-[11px] text-text-muted/60 mt-1">Browse all available skills in the Marketplace tab.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            categories.forEach(cat => {
+                const items = filtered.filter(s => s.category.toLowerCase() === cat.key.toLowerCase());
+                if (items.length === 0) return;
+
+                const secDiv = document.createElement('div');
+                secDiv.className = 'space-y-3';
+                secDiv.innerHTML = `
+                    <h3 class="text-[12px] font-semibold text-text-muted tracking-wide">${cat.title}</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+                `;
+
+                const grid = secDiv.querySelector('div');
+
+                items.forEach(skill => {
+                    const card = document.createElement('div');
+                    card.className = 'bg-card-bg border border-border-subtle hover:border-border-dark rounded-xl p-3.5 flex items-start gap-3 transition-colors';
+
+                    const isCore = skill.tier === 'core';
+
+                    card.innerHTML = `
+                        <div class="w-9 h-9 rounded-lg bg-[#1D1D22] border border-[#27272D] p-1.5 flex items-center justify-center shrink-0 shadow-sm overflow-hidden text-[#10A8FF]">
+                            ${getSkillIconSvg(skill.id)}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between mb-0.5">
+                                <span class="text-[13px] font-semibold text-text-primary truncate">${skill.name}</span>
+                                ${isCore ? `
+                                    <span class="px-2.5 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10.5px] font-semibold flex items-center gap-1">
+                                        <span class="material-symbols-outlined text-[12px]">check</span> Active
+                                    </span>
+                                ` : (skill.installed ? `
+                                    <button class="toggle-skill-btn text-[11px] text-[#10A8FF] flex items-center gap-1 font-semibold hover:opacity-80 transition-opacity cursor-pointer" data-id="${skill.id}">
+                                        <span class="material-symbols-outlined text-[13px]">check</span> Added
+                                    </button>
+                                ` : `
+                                    <button class="toggle-skill-btn px-3 py-1 rounded-lg bg-[#10A8FF] hover:bg-[#0E96E6] text-[11px] font-medium text-white shadow-sm transition-colors cursor-pointer" data-id="${skill.id}">
+                                        Add
+                                    </button>
+                                `)}
+                            </div>
+                            <p class="text-[11px] text-text-muted line-clamp-2 leading-relaxed">${skill.description}</p>
+                            ${skill.suggested_plugins && skill.suggested_plugins.length > 0 ? `
+                                <div class="flex items-center gap-1.5 mt-2 text-[10px] text-text-muted/70">
+                                    <span>Pairs with:</span>
+                                    ${skill.suggested_plugins.map(p => `<span class="px-1.5 py-0.2 rounded bg-[#18181C] border border-[#25252D] text-text-muted font-mono">${p}</span>`).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+
+                    const btn = card.querySelector('.toggle-skill-btn');
+                    if (btn) {
+                        btn.addEventListener('click', async (e) => {
+                            e.stopPropagation();
+                            if (skill.installed) {
+                                // Uninstall account-wide: DELETE /api/skills/:skillId/install
+                                try {
+                                    await fetch(`http://localhost:4000/api/skills/${skill.id}/install`, { method: 'DELETE' });
+                                    skill.installed = false;
+                                    updateSkillsBadges();
+                                    renderSkills();
+                                } catch (err) {
+                                    console.warn('Skill uninstall error:', err);
+                                }
+                            } else {
+                                // Install account-wide: POST /api/skills/:skillId/install
+                                btn.textContent = 'Installing...';
+                                try {
+                                    const res = await fetch(`http://localhost:4000/api/skills/${skill.id}/install`, { method: 'POST' });
+                                    const data = await res.json();
+                                    if (data && data.ok) {
+                                        skill.installed = true;
+                                        updateSkillsBadges();
+                                        renderSkills();
+                                    } else {
+                                        skill.installed = true;
+                                        updateSkillsBadges();
+                                        renderSkills();
+                                    }
+                                } catch (err) {
+                                    skill.installed = true;
+                                    updateSkillsBadges();
+                                    renderSkills();
+                                }
+                            }
+                        });
+                    }
+
+                    grid.appendChild(card);
+                });
+
+                dom.skillsModalList.appendChild(secDiv);
+            });
+        }
+
+        function updateSkillsBadges() {
+            const count = state.skills.filter(s => s.installed).length;
+            if (dom.yoursSkillsCount) {
+                dom.yoursSkillsCount.textContent = count;
+            }
+        }
+
+        async function syncSkillsWithBackend() {
+            try {
+                const res = await fetch('http://localhost:4000/api/skills');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data && Array.isArray(data.skills)) {
+                    data.skills.forEach(s => {
+                        const match = state.skills.find(item => item.id === s.id);
+                        if (match) {
+                            match.installed = !!s.installed;
+                            if (s.instructions) match.instructions = s.instructions;
+                        }
+                    });
+                    updateSkillsBadges();
+                    renderSkills();
+                }
+            } catch (err) {
+                console.warn('Backend skills sync status:', err.message);
+            }
+        }
+
+        async function renderAgentSettingsSkills(currentAgent) {
+            if (!dom.settingsSkillsChecklist) return;
+            dom.settingsSkillsChecklist.innerHTML = `
+                <div class="space-y-3">
+                    <!-- Core Skills Subsection -->
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-semibold text-text-muted uppercase tracking-wider">Core Skills (Always Active)</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-medium">6 active</span>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            ${state.skills.filter(s => s.tier === 'core').map(s => `
+                                <div class="p-2.5 rounded-xl bg-card-bg border border-border-subtle flex items-start gap-2.5 select-none">
+                                    <div class="w-6 h-6 rounded-md bg-[#1C1C22] border border-[#27272D] flex items-center justify-center shrink-0 text-[#10A8FF]">
+                                        ${getSkillIconSvg(s.id)}
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <div class="flex items-center justify-between">
+                                            <span class="text-[12px] font-medium text-white truncate">${s.name}</span>
+                                            <span class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-medium">Core</span>
+                                        </div>
+                                        <p class="text-[10.5px] text-text-muted line-clamp-1 mt-0.5">${s.description}</p>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Library Skills Subsection -->
+                    <div class="space-y-2 pt-2 border-t border-border-subtle/50">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-semibold text-text-muted uppercase tracking-wider">Installed Library Skills</span>
+                        </div>
+                        <div id="agent-library-skills-container" class="space-y-2"></div>
+                    </div>
+                </div>
+            `;
+
+            const libContainer = dom.settingsSkillsChecklist.querySelector('#agent-library-skills-container');
+            const installedLibSkills = state.skills.filter(s => s.tier === 'library' && s.installed);
+
+            if (installedLibSkills.length === 0) {
+                libContainer.innerHTML = `
+                    <div class="p-3.5 rounded-xl bg-[#141418] border border-dashed border-border-subtle text-center space-y-2">
+                        <p class="text-[11.5px] text-text-muted">No library skills installed yet.</p>
+                        <button class="open-skills-library-trigger px-3 py-1 rounded-lg bg-[#10A8FF] hover:bg-[#0E96E6] text-white text-[11px] font-semibold transition-colors cursor-pointer inline-flex items-center gap-1">
+                            <span class="material-symbols-outlined text-[13px]">add</span> Open Skills Library
+                        </button>
+                    </div>
+                `;
+                const openBtn = libContainer.querySelector('.open-skills-library-trigger');
+                if (openBtn) {
+                    openBtn.addEventListener('click', () => {
+                        closeAgentSettingsModal();
+                        openSkillsModal();
+                    });
+                }
+            } else {
+                if (!currentAgent.enabled_skills) currentAgent.enabled_skills = [];
+
+                // Fetch enabled skills from backend if available
+                try {
+                    const res = await fetch(`http://localhost:4000/api/skills/agent/${currentAgent.backend_id || currentAgent.id}`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data && Array.isArray(data.library_enabled)) {
+                            currentAgent.enabled_skills = data.library_enabled.map(s => s.id);
+                        }
+                    }
+                } catch (err) {}
+
+                libContainer.innerHTML = installedLibSkills.map(s => {
+                    const isEnabled = (currentAgent.enabled_skills || []).includes(s.id);
+                    return `
+                        <div class="p-2.5 rounded-xl bg-card-bg border border-border-subtle hover:border-[#383842] flex items-center justify-between gap-3 transition-colors">
+                            <div class="flex items-start gap-2.5 min-w-0 flex-1">
+                                <div class="w-6 h-6 rounded-md bg-[#1C1C22] border border-[#27272D] flex items-center justify-center shrink-0 text-[#10A8FF]">
+                                    ${getSkillIconSvg(s.id)}
+                                </div>
+                                <div class="min-w-0 flex-1">
+                                    <div class="text-[12px] font-medium text-white truncate">${s.name}</div>
+                                    <div class="text-[10.5px] text-text-muted line-clamp-1 mt-0.5">${s.description}</div>
+                                </div>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                                <input type="checkbox" data-skill-id="${s.id}" ${isEnabled ? 'checked' : ''} class="agent-skill-toggle sr-only peer"/>
+                                <div class="w-9 h-5 bg-[#2B2B32] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#10A8FF]"></div>
+                            </label>
+                        </div>
+                    `;
+                }).join('');
+
+                libContainer.querySelectorAll('.agent-skill-toggle').forEach(toggle => {
+                    toggle.addEventListener('change', async (e) => {
+                        const sId = toggle.getAttribute('data-skill-id');
+                        const agentId = currentAgent.backend_id || currentAgent.id;
+                        if (!currentAgent.enabled_skills) currentAgent.enabled_skills = [];
+
+                        if (e.target.checked) {
+                            if (!currentAgent.enabled_skills.includes(sId)) currentAgent.enabled_skills.push(sId);
+                            try {
+                                await fetch(`http://localhost:4000/api/skills/agent/${agentId}/${sId}/enable`, { method: 'POST' });
+                            } catch (err) {}
+                        } else {
+                            currentAgent.enabled_skills = currentAgent.enabled_skills.filter(id => id !== sId);
+                            try {
+                                await fetch(`http://localhost:4000/api/skills/agent/${agentId}/${sId}/enable`, { method: 'DELETE' });
+                            } catch (err) {}
+                        }
+                    });
+                });
             }
         }
 
@@ -4989,8 +5369,34 @@
                 setTimeout(() => dom.modalBackdrop.classList.add('hidden'), 200);
             };
 
+            const openSkillsModal = () => {
+                renderSkills();
+                updateSkillsBadges();
+                if (dom.skillsModal) dom.skillsModal.classList.remove('hidden');
+                if (dom.modalBackdrop) {
+                    dom.modalBackdrop.classList.remove('hidden');
+                    setTimeout(() => dom.modalBackdrop.classList.add('opacity-100'), 10);
+                }
+            };
+            const closeSkillsModal = () => {
+                if (dom.skillsModal) dom.skillsModal.classList.add('hidden');
+                if (dom.modalBackdrop) {
+                    dom.modalBackdrop.classList.add('opacity-0');
+                    setTimeout(() => dom.modalBackdrop.classList.add('hidden'), 200);
+                }
+            };
+
             dom.sidebarPluginsBtn.addEventListener('click', openPlugins);
             dom.closePluginsBtn.addEventListener('click', closePlugins);
+
+            if (dom.sidebarSkillsBtn) dom.sidebarSkillsBtn.addEventListener('click', openSkillsModal);
+            if (dom.closeSkillsBtn) dom.closeSkillsBtn.addEventListener('click', closeSkillsModal);
+            if (dom.openSkillsLibraryFromSettings) {
+                dom.openSkillsLibraryFromSettings.addEventListener('click', () => {
+                    closeAgentSettingsModal();
+                    openSkillsModal();
+                });
+            }
 
             // Delete Modal Handlers
             const openDeleteModal = (agentId) => {
@@ -5037,11 +5443,12 @@
 
             // =========================================================================
             // CLICK-OUTSIDE / SIDES / BACKDROP TO CLOSE MODAL PAGES
-            // Closes pages (Plugins, App Settings, About, Agent Settings, Routines, Delete)
+            // Closes pages (Plugins, Skills, App Settings, About, Agent Settings, Routines, Delete)
             // when clicking on the side / backdrop area outside the content card.
             // =========================================================================
             const dismissibleModalPages = [
                 { el: dom.pluginsModal, close: closePlugins },
+                { el: dom.skillsModal, close: closeSkillsModal },
                 { el: dom.appSettingsModal, close: closeAppSettings },
                 { el: dom.agentSettingsModal, close: closeAgentSettingsModal },
                 { el: dom.teachRoutineModal, close: closeTeachRoutineModal },
@@ -5097,12 +5504,37 @@
 
             dom.pluginsSearchInput.addEventListener('input', renderPlugins);
 
+            // Skills tabs and search
+            if (dom.tabSkillsMarketplace) {
+                dom.tabSkillsMarketplace.addEventListener('click', () => {
+                    state.skillsTab = 'marketplace';
+                    dom.tabSkillsMarketplace.className = 'px-3 py-1 rounded-md text-[12px] font-medium bg-card-hover text-white transition-colors cursor-pointer';
+                    dom.tabSkillsYours.className = 'px-3 py-1 rounded-md text-[12px] font-medium text-text-muted hover:text-white transition-colors cursor-pointer';
+                    renderSkills();
+                });
+            }
+
+            if (dom.tabSkillsYours) {
+                dom.tabSkillsYours.addEventListener('click', () => {
+                    state.skillsTab = 'yours';
+                    dom.tabSkillsYours.className = 'px-3 py-1 rounded-md text-[12px] font-medium bg-card-hover text-white transition-colors cursor-pointer';
+                    dom.tabSkillsMarketplace.className = 'px-3 py-1 rounded-md text-[12px] font-medium text-text-muted hover:text-white transition-colors cursor-pointer';
+                    renderSkills();
+                });
+            }
+
+            if (dom.skillsSearchInput) {
+                dom.skillsSearchInput.addEventListener('input', renderSkills);
+            }
+
             // Initial render - Do NOT auto-create an agent on refresh
             renderSidebar();
             selectAgent(null);
             updateSendButtonState();
             updatePluginsBadges();
+            updateSkillsBadges();
             syncPluginsWithBackend();
+            syncSkillsWithBackend();
             initSupabaseRealtime();
         }
 

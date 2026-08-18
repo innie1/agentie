@@ -37,11 +37,12 @@ export async function runTask(taskId) {
     }
   }
 
-  // ── Step 2: load memory + plugin list into context ──
+  // ── Step 2: load memory + plugin list + skills into context ──
   const { data: memories } = await supabaseAdmin.from("agent_memory").select("key, value").eq("agent_id", agent.id);
   const memoryBlock = (memories || []).map((m) => `- ${m.key}: ${m.value}`).join("\n") || "(no saved facts yet)";
 
-  const systemPrompt = buildSystemPrompt(agent, memoryBlock);
+  const skillsBlock = await buildSkillsBlock(agent.id);
+  const systemPrompt = buildSystemPrompt(agent, memoryBlock, skillsBlock);
 
   // conversation + loop state — resumed from result_payload if this is a re-run after approval
   let conversation = task.result_payload?.paused_state?.conversation || [
@@ -140,10 +141,41 @@ export async function runTask(taskId) {
   await failTask(taskId, `Task exceeded ${MAX_STEPS} steps without reaching a final answer.`);
 }
 
-function buildSystemPrompt(agent, memoryBlock) {
+// Core skills apply to every agent automatically — no install, cannot be disabled.
+// Library skills only apply if the agent has them enabled in agent_skills.
+async function buildSkillsBlock(agentId) {
+  const { data: coreSkills } = await supabaseAdmin.from("skills").select("name, instructions").eq("tier", "core").eq("status", "active");
+
+  const { data: enabledRows } = await supabaseAdmin.from("agent_skills").select("skill_id").eq("agent_id", agentId);
+  const enabledIds = (enabledRows || []).map((r) => r.skill_id);
+
+  let librarySkills = [];
+  if (enabledIds.length) {
+    const { data } = await supabaseAdmin.from("skills").select("name, instructions").in("id", enabledIds).eq("status", "active");
+    librarySkills = data || [];
+  }
+
+  const format = (list) => list.map((s) => `• ${s.name}: ${s.instructions}`).join("\n");
+
+  return [
+    "CORE SKILLS (always active):",
+    format(coreSkills || []),
+    librarySkills.length ? "\nINSTALLED SKILLS (enabled for this agent):" : "",
+    librarySkills.length ? format(librarySkills) : "",
+  ].filter(Boolean).join("\n");
+}
+
+function buildSystemPrompt(agent, memoryBlock, skillsBlock) {
   return `${agent.system_prompt}
 
+${skillsBlock}
+
 You can use these plugins (only these): ${agent.allowed_plugins.join(", ") || "(none connected)"}
+
+Skills determine HOW you approach a task (how you plan, review, communicate).
+Plugins determine WHAT tools you have access to. Apply your skills' guidance
+regardless of which plugins are available — skills shape reasoning and output
+quality even on tasks that use no plugin at all.
 
 Known facts about how this user works:
 ${memoryBlock}

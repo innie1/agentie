@@ -5,6 +5,7 @@ import { requireAuth } from './lib/authMiddleware.js';
 import pluginsRouter, { oauthCallbackHandler } from './routes/plugins.js';
 import agentsRouter from './routes/agents.js';
 import tasksRouter from './routes/tasks.js';
+import skillsRouter from './routes/skills.js';
 import { apiRouter } from './routes/api.js';
 import { cronScheduler } from './services/cronScheduler.js';
 import { refreshModelsCatalog } from './services/openRouterService.js';
@@ -23,6 +24,7 @@ app.get("/api/plugins/callback", oauthCallbackHandler);
 app.use("/api/plugins", requireAuth, pluginsRouter);
 app.use("/api/agents", requireAuth, agentsRouter);
 app.use("/api/tasks", requireAuth, tasksRouter);
+app.use("/api/skills", requireAuth, skillsRouter);
 app.use('/api', apiRouter);
 
 // Health Check
