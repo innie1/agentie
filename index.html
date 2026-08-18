@@ -1408,25 +1408,50 @@
     </div>
 
     <script>
-      // ── Fill these in ──
-      const SUPABASE_URL = localStorage.getItem('supabase_url') || window.AGENTIE_SUPABASE_URL || "https://cugaysbdpfzunwwlbfsn.supabase.co";
-      const SUPABASE_ANON_KEY = localStorage.getItem('supabase_anon_key') || window.AGENTIE_SUPABASE_ANON_KEY || "PASTE_YOUR_SUPABASE_ANON_KEY_HERE"; // Settings → API → anon public
+      function resolveSupabaseConfig() {
+        const url = window.AGENTIE_SUPABASE_URL ||
+                    window.SUPABASE_URL ||
+                    window.NEXT_PUBLIC_SUPABASE_URL ||
+                    window.VITE_SUPABASE_URL ||
+                    window.REACT_APP_SUPABASE_URL ||
+                    localStorage.getItem('supabase_url') ||
+                    "https://cugaysbdpfzunwwlbfsn.supabase.co";
 
-      const isKeyConfigured = SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.startsWith("PASTE_YOUR");
+        const key = window.AGENTIE_SUPABASE_ANON_KEY ||
+                    window.SUPABASE_ANON_KEY ||
+                    window.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+                    window.VITE_SUPABASE_ANON_KEY ||
+                    window.REACT_APP_SUPABASE_ANON_KEY ||
+                    localStorage.getItem('supabase_anon_key') ||
+                    "";
 
-      const _sb = (window.supabase && typeof window.supabase.createClient === 'function' && isKeyConfigured)
-        ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-        : null;
+        return { url, key: (key && !key.startsWith("PASTE_YOUR")) ? key : "" };
+      }
 
-      function getSupabaseClient() {
-        if (window.AgentieAuth && window.AgentieAuth.client) return window.AgentieAuth.client;
-        if (_sb) return _sb;
-        const url = localStorage.getItem('supabase_url') || window.AGENTIE_SUPABASE_URL || "https://cugaysbdpfzunwwlbfsn.supabase.co";
-        const key = localStorage.getItem('supabase_anon_key') || window.AGENTIE_SUPABASE_ANON_KEY || (typeof SUPABASE_ANON_KEY !== 'undefined' ? SUPABASE_ANON_KEY : null);
-        if (window.supabase && typeof window.supabase.createClient === 'function' && key && !key.startsWith("PASTE_YOUR")) {
-          return window.supabase.createClient(url, key);
+      function initSupabaseClient() {
+        const { url, key } = resolveSupabaseConfig();
+        if (window.supabase && typeof window.supabase.createClient === 'function' && key) {
+          try {
+            return window.supabase.createClient(url, key, {
+              auth: {
+                persistSession: true,
+                autoRefreshToken: true,
+                detectSessionInUrl: true
+              }
+            });
+          } catch (e) {
+            console.error('[Supabase] Client init failed:', e.message);
+          }
         }
         return null;
+      }
+
+      let _sb = initSupabaseClient();
+
+      function getSupabaseClient() {
+        if (!_sb) _sb = initSupabaseClient();
+        if (window.AgentieAuth) window.AgentieAuth.client = _sb;
+        return _sb;
       }
       window.getSupabaseClient = getSupabaseClient;
 
@@ -1436,37 +1461,35 @@
 
         async init() {
           this._wireForm();
+          const client = getSupabaseClient();
 
-          // Check if user previously chosen Guest Mode
+          if (client) {
+            try {
+              const { data } = await client.auth.getSession();
+              this._session = data?.session || null;
+
+              client.auth.onAuthStateChange((_event, session) => {
+                this._session = session;
+                if (session) localStorage.removeItem("agentie_guest_mode");
+                this._toggleOverlay(!session && localStorage.getItem("agentie_guest_mode") !== "true");
+              });
+
+              if (this._session) {
+                this._toggleOverlay(false);
+                return this._session;
+              }
+            } catch (err) {
+              console.warn('[AgentieAuth] Session check warning:', err.message);
+            }
+          }
+
+          // Check if user previously chose Guest Mode
           if (localStorage.getItem("agentie_guest_mode") === "true") {
-            this._session = { access_token: "guest_session_token", user: { id: "guest_user", email: "guest@agentie.ai" } };
-            this._toggleOverlay(false);
-            return this._session;
+            return await this.enterGuestMode();
           }
 
-          if (!_sb) {
-            // If Supabase key not provided yet, show overlay with active guest option
-            this._toggleOverlay(true);
-            return null;
-          }
-
-          try {
-            const { data } = await _sb.auth.getSession();
-            this._session = data?.session || null;
-
-            _sb.auth.onAuthStateChange((_event, session) => {
-              this._session = session;
-              if (session) localStorage.removeItem("agentie_guest_mode");
-              this._toggleOverlay(!session && localStorage.getItem("agentie_guest_mode") !== "true");
-            });
-
-            this._toggleOverlay(!this._session);
-            return this._session;
-          } catch (err) {
-            console.warn('[AgentieAuth] Session check warning:', err.message);
-            this._toggleOverlay(true);
-            return null;
-          }
+          this._toggleOverlay(!this._session);
+          return this._session;
         },
 
         getToken() {
@@ -1477,17 +1500,32 @@
           return this._session?.user || null;
         },
 
-        enterGuestMode() {
+        async enterGuestMode() {
           localStorage.setItem("agentie_guest_mode", "true");
-          this._session = { access_token: "guest_session_token", user: { id: "guest_user", email: "guest@agentie.ai" } };
+          const client = getSupabaseClient();
+          if (client) {
+            try {
+              const { data, error } = await client.auth.signInAnonymously();
+              if (!error && data?.session) {
+                this._session = data.session;
+                this._toggleOverlay(false);
+                return this._session;
+              }
+            } catch (e) {
+              console.warn('[AgentieAuth] Anonymous auth not enabled or failed:', e.message);
+            }
+          }
+          this._session = this._session || { access_token: "guest_session_token", user: { id: "00000000-0000-0000-0000-000000000000", email: "guest@agentie.ai" } };
           this._toggleOverlay(false);
+          return this._session;
         },
 
         async signOut() {
           localStorage.removeItem("agentie_guest_mode");
           this._session = null;
-          if (_sb) {
-            try { await _sb.auth.signOut(); } catch (e) {}
+          const client = getSupabaseClient();
+          if (client) {
+            try { await client.auth.signOut(); } catch (e) {}
           }
           this._toggleOverlay(true);
         },
@@ -4911,14 +4949,25 @@
                 const sb = getSupabaseClient() || _sb;
 
                 try {
-                    if (!currentAgent.backend_id || !/^[0-9a-fA-F-]{36}$/.test(currentAgent.backend_id)) {
-                        await persistAgentToBackend(currentAgent);
-                    }
-                    const agentId = currentAgent.backend_id || currentAgent.id;
-                    const user = window.AgentieAuth?.getUser();
-                    const userId = user?.id || 'default_user';
-
                     if (sb) {
+                        let user = window.AgentieAuth?.getUser();
+                        if (!user || !user.id || !/^[0-9a-fA-F-]{36}$/.test(user.id)) {
+                            const { data: sessData } = await sb.auth.getSession();
+                            user = sessData?.session?.user || null;
+                            if (!user) {
+                                try {
+                                    const { data: anonData } = await sb.auth.signInAnonymously();
+                                    user = anonData?.user || anonData?.session?.user || null;
+                                } catch (e) {}
+                            }
+                        }
+                        const userId = user?.id || '00000000-0000-0000-0000-000000000000';
+
+                        if (!currentAgent.backend_id || !/^[0-9a-fA-F-]{36}$/.test(currentAgent.backend_id)) {
+                            await persistAgentToBackend(currentAgent);
+                        }
+                        const agentId = currentAgent.backend_id || currentAgent.id;
+
                         const { data: task, error } = await sb
                             .from("tasks")
                             .insert({
@@ -4931,13 +4980,14 @@
                             .single();
 
                         if (error) {
-                            console.error('Supabase task insert error:', error);
+                            console.error('[Supabase task insert error]:', error);
                             currentAgent.isWorking = false;
+                            const errText = error.message || error.details || error.hint || JSON.stringify(error);
                             currentAgent.messages.push({
                                 sender: 'agent',
                                 result_type: 'failure',
-                                result_payload: { error: error.message },
-                                text: `Task submission error: ${error.message}`
+                                result_payload: { error: errText, code: error.code },
+                                text: `Task submission error: ${errText}`
                             });
                             renderSidebar();
                             if (dom.topAgentAvatarWrap) {
@@ -4987,7 +5037,7 @@
                             sender: 'agent',
                             result_type: 'failure',
                             result_payload: { error: 'Supabase client not initialized' },
-                            text: 'Unable to connect to Supabase database to submit task.'
+                            text: 'Unable to connect to Supabase database. Please ensure SUPABASE_ANON_KEY (or NEXT_PUBLIC_SUPABASE_ANON_KEY) is configured.'
                         });
                         renderSidebar();
                         if (dom.topAgentAvatarWrap) {
@@ -5804,8 +5854,16 @@
         async function persistAgentToBackend(agent) {
             if (!agent) return;
             const sb = getSupabaseClient() || _sb;
-            const user = window.AgentieAuth?.getUser();
-            const userId = user?.id || 'default_user';
+            let user = window.AgentieAuth?.getUser();
+            if (!user || !user.id || !/^[0-9a-fA-F-]{36}$/.test(user.id)) {
+                if (sb) {
+                    try {
+                        const { data: sessData } = await sb.auth.getSession();
+                        user = sessData?.session?.user || null;
+                    } catch (e) {}
+                }
+            }
+            const userId = user?.id || '00000000-0000-0000-0000-000000000000';
             const payload = {
                 user_id: userId,
                 role: agent.role || 'General Assistant',
