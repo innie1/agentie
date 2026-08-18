@@ -5017,12 +5017,16 @@
                         if (!taskDispatched) {
                             console.error('[Supabase task insert error]:', taskInsertError);
                             currentAgent.isWorking = false;
-                            const errText = taskInsertError?.message || taskInsertError?.details || taskInsertError?.hint || (typeof taskInsertError === 'string' ? taskInsertError : 'Database error creating task');
+                            const rawErr = taskInsertError?.message || taskInsertError?.details || taskInsertError?.hint || (typeof taskInsertError === 'string' ? taskInsertError : 'Database error creating task');
+                            let displayMsg = `Task submission error: ${rawErr}`;
+                            if (rawErr.includes('schema cache') || rawErr.includes('tasks') || rawErr.includes('PGRST205') || rawErr.includes('42P01')) {
+                                displayMsg = `Database Setup Required: The 'tasks' table does not exist in your Supabase project yet. Run the SQL schema from supabase/schema.sql in your Supabase SQL Editor to initialize the database tables.`;
+                            }
                             currentAgent.messages.push({
                                 sender: 'agent',
                                 result_type: 'failure',
-                                result_payload: { error: errText, code: taskInsertError?.code },
-                                text: `Task submission error: ${errText}`
+                                result_payload: { error: rawErr, code: taskInsertError?.code },
+                                text: displayMsg
                             });
                             renderSidebar();
                             if (dom.topAgentAvatarWrap) {
