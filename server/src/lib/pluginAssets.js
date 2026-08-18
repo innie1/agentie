@@ -1,5 +1,5 @@
 // Canonical plugin branding metadata. The frontend can use icon_url directly;
-// these are the official Simple Icons assets for the corresponding services.
+// these are the official service assets for the corresponding services.
 export const PLUGIN_ASSETS = {
   gmail: { icon_url: "https://cdn.simpleicons.org/gmail", icon_alt: "Gmail" },
   gcal: { icon_url: "https://cdn.simpleicons.org/googlecalendar", icon_alt: "Google Calendar" },
@@ -29,7 +29,7 @@ export const PLUGIN_ASSETS = {
   stripe: { icon_url: "https://cdn.simpleicons.org/stripe", icon_alt: "Stripe" },
   shopify: { icon_url: "https://cdn.simpleicons.org/shopify", icon_alt: "Shopify" },
   aws: { icon_url: "https://cdn.simpleicons.org/amazonaws", icon_alt: "AWS" },
-  agentmail: { icon_url: "https://cdn.simpleicons.org/maildotru", icon_alt: "AgentMail" },
+  agentmail: { icon_url: "https://www.agentmail.to/favicon.ico", icon_alt: "AgentMail" },
 };
 
 export function withPluginAsset(plugin) {
