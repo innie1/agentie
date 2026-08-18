@@ -61,7 +61,7 @@ router.post("/:pluginId/start", async (req, res) => {
   const { pluginId } = req.params;
   const { data: plugin, error } = await supabaseAdmin.from("plugins").select("*").eq("id", pluginId).single();
   const pluginDef = plugin || DEFAULT_PLUGINS.find((p) => p.id === pluginId);
-  if (error && !pluginDef || !pluginDef) return res.status(404).json({ error: "Unknown plugin" });
+  if ((error && !pluginDef) || !pluginDef) return res.status(404).json({ error: "Unknown plugin" });
   if (pluginDef.auth_type !== "oauth") return res.status(400).json({ error: "This plugin uses api_key flow, call /add-api-key instead" });
   const provider = OAUTH_PROVIDERS[pluginId];
   if (!provider?.clientId) return res.status(500).json({ error: `No OAuth app configured for '${pluginId}'. Set its client id/secret in server env vars.` });
@@ -109,7 +109,7 @@ router.post("/:pluginId/add-api-key", async (req, res) => {
   if (!supplied) return res.status(400).json({ error: "credentials are required" });
   const plugin = (await supabaseAdmin.from("plugins").select("*").eq("id", pluginId).single()).data || DEFAULT_PLUGINS.find((p) => p.id === pluginId);
   if (!plugin) return res.status(404).json({ error: "Unknown plugin" });
-  if (plugin.auth_type !== "api_key") return res.status(400).json({ error: "This plugin uses OAuth, not an API key" });
+  if (plugin.auth_type !== "api_key" && pluginId !== "github") return res.status(400).json({ error: "This plugin uses OAuth, not an API key" });
   const valid = await testApiKey(pluginId, supplied);
   if (!valid.ok) return res.status(400).json({ error: valid.error || "Credential validation failed" });
   const encrypted = Object.fromEntries(Object.entries(supplied).map(([k, v]) => [k, encrypt(String(v))]));
@@ -127,6 +127,12 @@ router.delete("/:pluginId", async (req, res) => {
 async function testApiKey(pluginId, c) {
   try {
     switch (pluginId) {
+      case "github": {
+        const token = c.access_token || c.api_key || c.token;
+        if (!token) return { ok: false, error: "GitHub personal access token is required" };
+        const r = await axios.get("https://api.github.com/user", { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" } });
+        return { ok: r.status === 200 };
+      }
       case "agentmail": {
         const key = c.api_key || c.apiKey || c.key;
         if (!key) return { ok: false, error: "AgentMail API key is required" };
