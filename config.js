@@ -29,8 +29,6 @@ window.agentieApiUrl = function(path) {
       if (!agent) return;
       var stableId = agent.id;
       var result = await originalPersist(agent);
-      // The legacy function accidentally replaces agent.id with the backend UUID.
-      // Restore the stable UI id and keep the real UUID in backend_id.
       if (stableId && agent.backend_id) agent.id = stableId;
       if (window.state && window.state.activeAgentId) window.state.activeAgentId = stableId || window.state.activeAgentId;
       return result;
@@ -56,17 +54,12 @@ window.agentieApiUrl = function(path) {
 
       agent.choiceAnswered = true;
 
-      // Let the Brain/server own the first real agent name instead of hard-coding one locally.
       if ((!agent.backend_id || !/^[0-9a-fA-F-]{36}$/.test(agent.backend_id)) && typeof window.authedFetch === 'function') {
         try {
           var createRes = await window.authedFetch(window.agentieApiUrl('api/agents'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              role: 'General Assistant',
-              goal: text,
-              allowed_plugins: agent.allowed_plugins || []
-            })
+            body: JSON.stringify({ role: 'General Assistant', goal: text, allowed_plugins: agent.allowed_plugins || [] })
           });
           if (createRes.ok) {
             var created = await createRes.json();
@@ -103,9 +96,9 @@ window.agentieApiUrl = function(path) {
         });
         var data = await res.json();
         if (!res.ok || !data.task) throw new Error(data.error || data.detail || 'Chat request failed');
-        agent.isWorking = false;
         if (typeof window.applyTaskResultToAgent === 'function') window.applyTaskResultToAgent(agent, data.task);
         else {
+          agent.isWorking = false;
           agent.messages.push({ sender: 'agent', task_id: data.task.id, result_type: data.task.result_type || 'fact', result_payload: data.task.result_payload || {}, text: data.task.result || data.task.result_payload?.text || '' });
           if (typeof window.renderMainWorkspace === 'function') window.renderMainWorkspace(agent);
         }
@@ -117,4 +110,114 @@ window.agentieApiUrl = function(path) {
       }
     };
   }, 50);
+})();
+
+// Direct-first-choice Brain flow.
+// The existing UI stays unchanged. When a user clicks A/B/C/D, this capture
+// handler prevents the legacy local handler from generating a fake response and
+// sends the selection straight to the Agentie Brain/backend instead.
+(function installFirstChoiceBrainFlow() {
+  var choices = {
+    'Work / business': {
+      role: 'Work and Business Assistant',
+      goal: 'Help the user with work and business. Understand their business or professional needs, identify the most useful specialization, and begin helping immediately.'
+    },
+    'Personal life': {
+      role: 'Personal Life Assistant',
+      goal: 'Help the user with personal life, planning, organization, routines, learning, and everyday priorities. Understand the user\'s needs and begin helping immediately.'
+    },
+    'A mix of both': {
+      role: 'Work and Personal Life Assistant',
+      goal: 'Help the user across both work/business and personal life. Balance priorities and determine the most useful specialization from the user\'s needs.'
+    },
+    "I'll tell you": {
+      role: 'General Assistant',
+      goal: 'The user wants to describe their specific needs. Invite them to explain what they want, but do not generate a fake answer before they do.'
+    }
+  };
+
+  async function sendChoiceToBrain(choice) {
+    var state = window.state;
+    var dom = window.dom;
+    if (!state || !dom) return;
+
+    if (!state.activeAgentId && typeof window.createNewAgent === 'function') window.createNewAgent();
+    var agent = state.agents.find(function(a) { return a.id === state.activeAgentId; });
+    if (!agent) return;
+
+    var spec = choices[choice] || { role: 'General Assistant', goal: choice };
+    agent.choiceAnswered = true;
+    agent.isWorking = true;
+    agent.messages = agent.messages || [];
+    agent.messages.push({ sender: 'user', text: choice });
+
+    if (dom.chatInput) dom.chatInput.value = '';
+    if (typeof window.updateSendButtonState === 'function') window.updateSendButtonState();
+    if (typeof window.renderSidebar === 'function') window.renderSidebar();
+    if (typeof window.renderMainWorkspace === 'function') window.renderMainWorkspace(agent);
+
+    try {
+      var createRes = await window.authedFetch(window.agentieApiUrl('api/agents'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: spec.role,
+          goal: spec.goal,
+          allowed_plugins: agent.allowed_plugins || []
+        })
+      });
+      var created = await createRes.json();
+      if (!createRes.ok || !created.agent) throw new Error(created.error || created.detail || 'Brain agent creation failed');
+
+      agent.backend_id = created.agent.id;
+      agent.name = created.agent.name || agent.name;
+      agent.name_source = created.agent.name_source || 'auto';
+      agent.role = created.agent.role || spec.role;
+      agent.goal = created.agent.goal || spec.goal;
+      agent.system_prompt = created.agent.system_prompt || agent.system_prompt;
+      agent.tags = created.agent.tags || [];
+
+      dom.topAgentTitle.textContent = agent.name;
+      dom.chatInput.placeholder = 'Message ' + agent.name;
+      if (dom.screenCaptionText) dom.screenCaptionText.textContent = agent.name + "'s screen";
+
+      // Ask the Brain to continue from the user's selection. No locally generated
+      // filler response is inserted; the actual backend task supplies the reply.
+      var taskInstruction = choice === "I'll tell you"
+        ? "The user selected 'I'll tell you'. Do not invent their needs. Ask them what they want this agent to help with, then use their answer to specialize the agent."
+        : "The user selected '" + choice + "'. Begin the agent-creation conversation immediately. Do not ask the user to select this category again. Use the category as context and ask only the most useful next question if more detail is needed.";
+
+      var taskRes = await window.authedFetch(window.agentieApiUrl('api/tasks'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agent.backend_id, instruction: taskInstruction })
+      });
+      var taskData = await taskRes.json();
+      if (!taskRes.ok || !taskData.task) throw new Error(taskData.error || taskData.detail || 'Brain task submission failed');
+
+      if (typeof window.applyTaskResultToAgent === 'function') {
+        window.applyTaskResultToAgent(agent, taskData.task);
+      } else {
+        agent.isWorking = false;
+        agent.messages.push({ sender: 'agent', task_id: taskData.task.id, result_type: taskData.task.result_type || 'fact', result_payload: taskData.task.result_payload || {}, text: taskData.task.result || taskData.task.result_payload?.text || '' });
+        if (typeof window.renderMainWorkspace === 'function') window.renderMainWorkspace(agent);
+      }
+    } catch (err) {
+      agent.isWorking = false;
+      agent.messages.push({ sender: 'agent', result_type: 'failure', result_payload: { error: err.message }, text: 'Unable to start the Brain: ' + err.message });
+      if (typeof window.renderSidebar === 'function') window.renderSidebar();
+      if (typeof window.renderMainWorkspace === 'function') window.renderMainWorkspace(agent);
+    }
+  }
+
+  // Capture phase runs before the legacy row click handler.
+  document.addEventListener('click', function(event) {
+    var row = event.target && event.target.closest ? event.target.closest('.choice-option-row') : null;
+    if (!row) return;
+    var choice = row.getAttribute('data-choice');
+    if (!choice || !choices[choice]) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    sendChoiceToBrain(choice);
+  }, true);
 })();
