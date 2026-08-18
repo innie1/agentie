@@ -100,7 +100,7 @@ export async function oauthCallbackHandler(req, res) {
     console.error("[oauth callback]", err.response?.data || err.message);
     res.redirect(`${process.env.APP_URL}/plugins?error=${pending.plugin_id}`);
   }
-});
+}
 
 router.post("/:pluginId/add-api-key", async (req, res) => {
   const userId = req.user.id;
