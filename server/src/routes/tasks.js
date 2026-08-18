@@ -29,7 +29,8 @@ router.post("/", async (req, res) => {
   // Notify the worker directly (in addition to/instead of a Supabase DB webhook —
   // see README for wiring a DB webhook as the more resilient alternative)
   try {
-    await axios.post(`${process.env.WORKER_URL}/enqueue`, { taskId: task.id });
+    const workerUrl = process.env.WORKER_URL || 'https://agentie-production.up.railway.app';
+    await axios.post(`${workerUrl}/enqueue`, { taskId: task.id });
   } catch (err) {
     console.error("[tasks] failed to notify worker, task will sit as pending until a webhook picks it up:", err.message);
   }
@@ -51,7 +52,8 @@ router.post("/:id/approve", async (req, res) => {
   if (error || !task) return res.status(400).json({ error: error?.message || "Task not awaiting approval" });
 
   try {
-    await axios.post(`${process.env.WORKER_URL}/enqueue`, { taskId: task.id, resume: true });
+    const workerUrl = process.env.WORKER_URL || 'https://agentie-production.up.railway.app';
+    await axios.post(`${workerUrl}/enqueue`, { taskId: task.id, resume: true });
   } catch (err) {
     console.error("[tasks] failed to notify worker on resume:", err.message);
   }

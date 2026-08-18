@@ -117,7 +117,7 @@ class CronSchedulerWorker {
             if (error || !task) return;
 
             // Notify worker queue
-            const workerUrl = process.env.WORKER_URL || 'http://localhost:4100';
+            const workerUrl = process.env.WORKER_URL || 'https://agentie-production.up.railway.app';
             try {
                 await axios.post(`${workerUrl}/enqueue`, { taskId: task.id });
             } catch (notifyErr) {
