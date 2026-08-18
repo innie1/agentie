@@ -5,6 +5,57 @@ import { fastChat, isFastChatMessage } from "../lib/fastChat.js";
 
 const router = express.Router();
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+async function resolveChatAgent({ agentId, userId, instruction }) {
+  // Real Supabase UUID: use it directly.
+  if (UUID_RE.test(String(agentId || ""))) {
+    const { data: agent, error } = await supabaseAdmin
+      .from("agents")
+      .select("id, name, system_prompt, role, goal, character, tags, allowed_plugins")
+      .eq("id", agentId)
+      .eq("user_id", userId)
+      .single();
+    if (error || !agent) throw new Error(error?.message || "Agent not found");
+    return agent;
+  }
+
+  // Legacy frontend agents can have ids such as agent_1787056906746.
+  // Those ids are UI-only and must never be sent to a UUID column.
+  // Reuse the newest agent created for this user when possible; otherwise
+  // create the first persistent agent through the normal Brain-backed route logic.
+  const { data: newest, error: newestError } = await supabaseAdmin
+    .from("agents")
+    .select("id, name, system_prompt, role, goal, character, tags, allowed_plugins, created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (newestError) throw new Error(newestError.message);
+  if (newest) return newest;
+
+  const role = "General Assistant";
+  const goal = instruction.trim();
+  const { data: created, error: createError } = await supabaseAdmin
+    .from("agents")
+    .insert({
+      user_id: userId,
+      name: "Agentie Assistant",
+      role,
+      goal,
+      system_prompt: `You are a helpful Agentie assistant. Your current focus is: ${goal}`,
+      character: {},
+      tags: [role, "Assistant"],
+      allowed_plugins: [],
+    })
+    .select("id, name, system_prompt, role, goal, character, tags, allowed_plugins")
+    .single();
+
+  if (createError) throw new Error(createError.message);
+  return created;
+}
+
 // GET /api/tasks?agent_id=
 router.get("/", async (req, res) => {
   let q = supabaseAdmin.from("tasks").select("*").eq("user_id", req.user.id).order("created_at", { ascending: false });
@@ -15,26 +66,16 @@ router.get("/", async (req, res) => {
 });
 
 // POST /api/tasks { agent_id, instruction }
-// Ordinary conversation is handled here only for backwards compatibility with
-// the existing frontend endpoint. It is deliberately NOT inserted into tasks.
+// Kept for compatibility with the legacy frontend. Normal conversation is
+// resolved before any task row is created.
 router.post("/", async (req, res) => {
   const userId = req.user.id;
   const { agent_id, instruction, history: suppliedHistory = [] } = req.body;
   if (!agent_id || !instruction) return res.status(400).json({ error: "agent_id and instruction are required" });
 
-  // IMPORTANT: chat is resolved before any task row is created. This prevents
-  // normal messages from hitting the task queue and prevents fake/local agent
-  // IDs from ever reaching the tasks.agent_id UUID column.
   if (isFastChatMessage(instruction)) {
     try {
-      const { data: agent, error: agentError } = await supabaseAdmin
-        .from("agents")
-        .select("id, name, system_prompt, role, goal")
-        .eq("id", agent_id)
-        .eq("user_id", userId)
-        .single();
-
-      if (agentError || !agent) throw new Error(agentError?.message || "Agent not found");
+      const agent = await resolveChatAgent({ agentId: agent_id, userId, instruction });
 
       const history = Array.isArray(suppliedHistory)
         ? suppliedHistory
@@ -47,6 +88,7 @@ router.post("/", async (req, res) => {
         chat: {
           id: `chat_${Date.now()}`,
           agent_id: agent.id,
+          agent,
           instruction,
           result: text,
           result_type: "fact",
@@ -61,9 +103,14 @@ router.post("/", async (req, res) => {
     }
   }
 
-  // Only messages explicitly identified as actions/tasks reach this point.
-  // Validate the agent against Supabase before inserting, so a local id such as
-  // agent_1787051641837 can never cause a Postgres UUID error.
+  // Only explicit actions/tasks reach the task pipeline. Require a real UUID.
+  if (!UUID_RE.test(String(agent_id))) {
+    return res.status(400).json({
+      error: "Invalid agent_id",
+      detail: "Tasks require the real Supabase agent UUID. Normal conversation does not create tasks.",
+    });
+  }
+
   const { data: realAgent, error: realAgentError } = await supabaseAdmin
     .from("agents")
     .select("id")
@@ -78,7 +125,6 @@ router.post("/", async (req, res) => {
     });
   }
 
-  // Build conversation context from previous real tasks only.
   const { data: previousTasks, error: historyError } = await supabaseAdmin
     .from("tasks")
     .select("instruction, result, result_type, result_payload, status, created_at")
@@ -124,7 +170,6 @@ router.post("/", async (req, res) => {
   res.status(201).json({ task });
 });
 
-// POST /api/tasks/:id/approve
 router.post("/:id/approve", async (req, res) => {
   const { id } = req.params;
   const { data: task, error } = await supabaseAdmin
@@ -147,7 +192,6 @@ router.post("/:id/approve", async (req, res) => {
   res.json({ task });
 });
 
-// POST /api/tasks/:id/reject
 router.post("/:id/reject", async (req, res) => {
   const { data: task, error } = await supabaseAdmin
     .from("tasks")
