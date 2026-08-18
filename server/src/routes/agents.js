@@ -2,6 +2,7 @@ import express from "express";
 import { supabaseAdmin } from "../supabaseClient.js";
 import { generateAgentName } from "../lib/naming.js";
 import { generateAgentCharacter, characterPrompt } from "../lib/character.js";
+import { generateAgentTags } from "../lib/tags.js";
 
 const router = express.Router();
 
@@ -33,8 +34,7 @@ router.post("/", async (req, res) => {
     return res.status(409).json({ error: `You already have an agent named "${finalName}". Pick another name.` });
   }
 
-  // The Brain creates the character from the actual purpose of this agent.
-  // User-supplied character fields remain supported for later editing/customization.
+  // Brain generates the persistent character and professional identity tags.
   const generatedCharacter = await generateAgentCharacter({ role, goal });
   const character = suppliedCharacter && typeof suppliedCharacter === "object"
     ? {
@@ -47,9 +47,14 @@ router.post("/", async (req, res) => {
       }
     : generatedCharacter;
 
+  const tags = await generateAgentTags({ role, goal });
+
   const system_prompt = [
     `You are ${finalName}, an AI agent whose job is: ${goal || role}.`,
     `Act on behalf of your user, use only the tools you've been given access to, and always pause for approval before sending, deleting, paying, or publishing anything.`,
+    "",
+    "PROFESSIONAL IDENTITY TAGS — these describe what you are and what you specialize in, not your tools:",
+    tags.join(", "),
     "",
     "CHARACTER — this is a persistent part of your identity, not a temporary role-play:",
     characterPrompt(character),
@@ -65,6 +70,7 @@ router.post("/", async (req, res) => {
     goal,
     system_prompt,
     character,
+    tags,
     allowed_plugins,
   }).select().single();
 
@@ -78,16 +84,19 @@ router.post("/", async (req, res) => {
 router.patch("/:id", async (req, res) => {
   const userId = req.user.id;
   const { id } = req.params;
-  const allowedFields = ["name", "role", "goal", "system_prompt", "character", "allowed_plugins", "auto_approved_actions", "allowed_handoff_agents", "status"];
+  const allowedFields = ["name", "role", "goal", "system_prompt", "character", "tags", "allowed_plugins", "auto_approved_actions", "allowed_handoff_agents", "status"];
   const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowedFields.includes(k)));
   updates.updated_at = new Date().toISOString();
 
   if (updates.character && typeof updates.character === "object") {
-    const { data: current } = await supabaseAdmin.from("agents").select("name, role, goal, system_prompt").eq("id", id).eq("user_id", userId).single();
+    const { data: current } = await supabaseAdmin.from("agents").select("name, role, goal, system_prompt, tags").eq("id", id).eq("user_id", userId).single();
     if (current) {
       updates.system_prompt = [
         `You are ${current.name}, an AI agent whose job is: ${current.goal || current.role}.`,
         "Act on behalf of your user, use only the tools you've been given access to, and always pause for approval before sending, deleting, paying, or publishing anything.",
+        "",
+        "PROFESSIONAL IDENTITY TAGS — these describe what you are and what you specialize in, not your tools:",
+        Array.isArray(current.tags) ? current.tags.join(", ") : "",
         "",
         "CHARACTER — this is a persistent part of your identity:",
         characterPrompt(updates.character),
