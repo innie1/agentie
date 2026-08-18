@@ -1,7 +1,7 @@
 import express from "express";
 import { supabaseAdmin } from "../supabaseClient.js";
 import { generateAgentName } from "../lib/naming.js";
-import { buildAgentCharacter, characterPrompt } from "../lib/character.js";
+import { generateAgentCharacter, characterPrompt } from "../lib/character.js";
 
 const router = express.Router();
 
@@ -28,12 +28,14 @@ router.post("/", async (req, res) => {
   let nameSource = "user";
   if (!finalName) {
     finalName = await generateAgentName({ role, goal, taken: takenNames });
-    nameSource = "auto";
+    nameSource = "brain";
   } else if (takenNames.has(finalName.toLowerCase())) {
     return res.status(409).json({ error: `You already have an agent named "${finalName}". Pick another name.` });
   }
 
-  const generatedCharacter = buildAgentCharacter({ role, goal });
+  // The Brain creates the character from the actual purpose of this agent.
+  // User-supplied character fields remain supported for later editing/customization.
+  const generatedCharacter = await generateAgentCharacter({ role, goal });
   const character = suppliedCharacter && typeof suppliedCharacter === "object"
     ? {
         ...generatedCharacter,
@@ -80,7 +82,6 @@ router.patch("/:id", async (req, res) => {
   const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowedFields.includes(k)));
   updates.updated_at = new Date().toISOString();
 
-  // If the character changes, keep the actual model system prompt synchronized with it.
   if (updates.character && typeof updates.character === "object") {
     const { data: current } = await supabaseAdmin.from("agents").select("name, role, goal, system_prompt").eq("id", id).eq("user_id", userId).single();
     if (current) {
