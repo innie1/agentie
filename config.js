@@ -91,3 +91,11 @@ window.agentieApiUrl = function(path) { var base = window.AGENTIE_API_URL.replac
   },50);
   setTimeout(function(){clearInterval(timer);},20000);
 })();
+
+// Load the response-only presentation normalizer without changing the UI.
+(function loadResponseFormatter() {
+  var script = document.createElement('script');
+  script.src = '/response-format.js?v=1';
+  script.async = true;
+  document.head.appendChild(script);
+})();
