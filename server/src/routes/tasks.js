@@ -14,24 +14,80 @@ router.get("/", async (req, res) => {
   res.json({ tasks: data });
 });
 
-// POST /api/tasks  { agent_id, instruction }
+// POST /api/tasks { agent_id, instruction }
+// Ordinary conversation is handled here only for backwards compatibility with
+// the existing frontend endpoint. It is deliberately NOT inserted into tasks.
 router.post("/", async (req, res) => {
   const userId = req.user.id;
-  const { agent_id, instruction } = req.body;
+  const { agent_id, instruction, history: suppliedHistory = [] } = req.body;
   if (!agent_id || !instruction) return res.status(400).json({ error: "agent_id and instruction are required" });
 
-  // Build conversation context from recent completed/failed tasks for this agent.
-  // This makes follow-up messages understand what was said before without putting
-  // chat history into the frontend or exposing server credentials.
+  // IMPORTANT: chat is resolved before any task row is created. This prevents
+  // normal messages from hitting the task queue and prevents fake/local agent
+  // IDs from ever reaching the tasks.agent_id UUID column.
+  if (isFastChatMessage(instruction)) {
+    try {
+      const { data: agent, error: agentError } = await supabaseAdmin
+        .from("agents")
+        .select("id, name, system_prompt, role, goal")
+        .eq("id", agent_id)
+        .eq("user_id", userId)
+        .single();
+
+      if (agentError || !agent) throw new Error(agentError?.message || "Agent not found");
+
+      const history = Array.isArray(suppliedHistory)
+        ? suppliedHistory
+            .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+            .slice(-12)
+        : [];
+
+      const { text, model } = await fastChat({ agent, message: instruction, history });
+      return res.status(200).json({
+        chat: {
+          id: `chat_${Date.now()}`,
+          agent_id: agent.id,
+          instruction,
+          result: text,
+          result_type: "fact",
+          result_payload: { mode: "chat", model },
+          status: "done",
+        },
+        fast: true,
+      });
+    } catch (err) {
+      console.error("[tasks] fast chat failed:", err.message);
+      return res.status(502).json({ error: "Fast chat failed", detail: err.message });
+    }
+  }
+
+  // Only messages explicitly identified as actions/tasks reach this point.
+  // Validate the agent against Supabase before inserting, so a local id such as
+  // agent_1787051641837 can never cause a Postgres UUID error.
+  const { data: realAgent, error: realAgentError } = await supabaseAdmin
+    .from("agents")
+    .select("id")
+    .eq("id", agent_id)
+    .eq("user_id", userId)
+    .single();
+
+  if (realAgentError || !realAgent) {
+    return res.status(400).json({
+      error: "Invalid agent_id",
+      detail: "Tasks require the real Supabase agent UUID. Normal conversation does not create tasks.",
+    });
+  }
+
+  // Build conversation context from previous real tasks only.
   const { data: previousTasks, error: historyError } = await supabaseAdmin
     .from("tasks")
     .select("instruction, result, result_type, result_payload, status, created_at")
     .eq("user_id", userId)
-    .eq("agent_id", agent_id)
+    .eq("agent_id", realAgent.id)
     .order("created_at", { ascending: false })
     .limit(12);
 
-  if (historyError) console.warn("[tasks] conversation history load failed:", historyError.message);
+  if (historyError) console.warn("[tasks] task history load failed:", historyError.message);
 
   const history = (previousTasks || [])
     .reverse()
@@ -48,65 +104,18 @@ router.post("/", async (req, res) => {
     .from("tasks")
     .insert({
       user_id: userId,
-      agent_id,
+      agent_id: realAgent.id,
       instruction,
       status: "pending",
       context: { conversation: history },
     })
     .select()
     .single();
+
   if (error) return res.status(500).json({ error: error.message });
 
-  // Simple conversation should not wait for Redis/BullMQ. Keep real tasks asynchronous.
-  if (isFastChatMessage(instruction)) {
-    try {
-      const { data: agent, error: agentError } = await supabaseAdmin
-        .from("agents")
-        .select("id, name, system_prompt, role, goal")
-        .eq("id", agent_id)
-        .eq("user_id", userId)
-        .single();
-
-      if (agentError || !agent) throw new Error(agentError?.message || "Agent not found");
-
-      const { text, model } = await fastChat({ agent, message: instruction, history });
-      const { data: completed, error: completeError } = await supabaseAdmin
-        .from("tasks")
-        .update({
-          status: "done",
-          result: text,
-          result_type: "fact",
-          result_payload: { mode: "chat", model },
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", task.id)
-        .eq("user_id", userId)
-        .select()
-        .single();
-
-      if (completeError) throw new Error(completeError.message);
-      return res.status(201).json({ task: completed, fast: true });
-    } catch (err) {
-      console.error("[tasks] fast chat failed:", err.message);
-      const { data: failedTask } = await supabaseAdmin
-        .from("tasks")
-        .update({
-          status: "failed",
-          result_type: "failure",
-          result_payload: { error: err.message },
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", task.id)
-        .eq("user_id", userId)
-        .select()
-        .single();
-      return res.status(502).json({ error: "Fast chat failed", detail: err.message, task: failedTask || task });
-    }
-  }
-
-  // Real tasks stay asynchronous and go through Redis/BullMQ.
   try {
-    const workerUrl = process.env.WORKER_URL || 'https://agentie-production.up.railway.app';
+    const workerUrl = process.env.WORKER_URL || "https://agentie-production.up.railway.app";
     await axios.post(`${workerUrl}/enqueue`, { taskId: task.id });
   } catch (err) {
     console.error("[tasks] failed to notify worker, task will sit as pending until a webhook picks it up:", err.message);
@@ -129,7 +138,7 @@ router.post("/:id/approve", async (req, res) => {
   if (error || !task) return res.status(400).json({ error: error?.message || "Task not awaiting approval" });
 
   try {
-    const workerUrl = process.env.WORKER_URL || 'https://agentie-production.up.railway.app';
+    const workerUrl = process.env.WORKER_URL || "https://agentie-production.up.railway.app";
     await axios.post(`${workerUrl}/enqueue`, { taskId: task.id, resume: true });
   } catch (err) {
     console.error("[tasks] failed to notify worker on resume:", err.message);
