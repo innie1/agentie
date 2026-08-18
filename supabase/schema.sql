@@ -187,9 +187,9 @@ returns trigger as $$
 begin
   if new.status = 'pending' then
     perform net.http_post(
-      url := 'https://your-railway-worker-app.railway.app/enqueue',
+      url := 'https://agentie-production.up.railway.app/enqueue',
       headers := '{"Content-Type": "application/json"}'::jsonb,
-      body := json_build_object('record', row_to_json(new))::jsonb
+      body := json_build_object('taskId', new.id, 'record', row_to_json(new))::jsonb
     );
   end if;
   return new;

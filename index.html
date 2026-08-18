@@ -1409,14 +1409,26 @@
 
     <script>
       // ── Fill these in ──
-      const SUPABASE_URL = "https://cugaysbdpfzunwwlbfsn.supabase.co";
-      const SUPABASE_ANON_KEY = "PASTE_YOUR_SUPABASE_ANON_KEY_HERE"; // Settings → API → anon public
+      const SUPABASE_URL = localStorage.getItem('supabase_url') || window.AGENTIE_SUPABASE_URL || "https://cugaysbdpfzunwwlbfsn.supabase.co";
+      const SUPABASE_ANON_KEY = localStorage.getItem('supabase_anon_key') || window.AGENTIE_SUPABASE_ANON_KEY || "PASTE_YOUR_SUPABASE_ANON_KEY_HERE"; // Settings → API → anon public
 
       const isKeyConfigured = SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.startsWith("PASTE_YOUR");
 
       const _sb = (window.supabase && typeof window.supabase.createClient === 'function' && isKeyConfigured)
         ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
         : null;
+
+      function getSupabaseClient() {
+        if (window.AgentieAuth && window.AgentieAuth.client) return window.AgentieAuth.client;
+        if (_sb) return _sb;
+        const url = localStorage.getItem('supabase_url') || window.AGENTIE_SUPABASE_URL || "https://cugaysbdpfzunwwlbfsn.supabase.co";
+        const key = localStorage.getItem('supabase_anon_key') || window.AGENTIE_SUPABASE_ANON_KEY || (typeof SUPABASE_ANON_KEY !== 'undefined' ? SUPABASE_ANON_KEY : null);
+        if (window.supabase && typeof window.supabase.createClient === 'function' && key && !key.startsWith("PASTE_YOUR")) {
+          return window.supabase.createClient(url, key);
+        }
+        return null;
+      }
+      window.getSupabaseClient = getSupabaseClient;
 
       window.AgentieAuth = {
         client: _sb,
@@ -3238,10 +3250,13 @@
                             approveBtn.addEventListener('click', async () => {
                                 const taskId = msg.task_id || (msg.result_payload && msg.result_payload.action_id);
                                 if (taskId) {
-                                    try {
-                                        await authedFetch(agentieApiUrl(`api/tasks/${taskId}/approve`), { method: 'POST' });
-                                    } catch (err) {
-                                        console.warn('Approve task request error:', err);
+                                    const sb = getSupabaseClient() || _sb;
+                                    if (sb) {
+                                        try {
+                                            await sb.from("tasks").update({ status: 'pending', updated_at: new Date().toISOString() }).eq("id", taskId);
+                                        } catch (err) {
+                                            console.warn('Approve task request error:', err);
+                                        }
                                     }
                                 }
                                 if (msg.result_payload) msg.result_payload.status = 'approved';
@@ -3262,10 +3277,13 @@
                             rejectBtn.addEventListener('click', async () => {
                                 const taskId = msg.task_id || (msg.result_payload && msg.result_payload.action_id);
                                 if (taskId) {
-                                    try {
-                                        await authedFetch(agentieApiUrl(`api/tasks/${taskId}/reject`), { method: 'POST' });
-                                    } catch (err) {
-                                        console.warn('Reject task request error:', err);
+                                    const sb = getSupabaseClient() || _sb;
+                                    if (sb) {
+                                        try {
+                                            await sb.from("tasks").update({ status: 'failed', result_type: 'failure', result_payload: { error: 'Action rejected by user' }, updated_at: new Date().toISOString() }).eq("id", taskId);
+                                        } catch (err) {
+                                            console.warn('Reject task request error:', err);
+                                        }
                                     }
                                 }
                                 if (msg.result_payload) msg.result_payload.status = 'rejected';
@@ -3880,11 +3898,11 @@
                 };
             }
 
-            // 10. Single Fact / Confirmation -> Plain Text (fact)
+            // 10. Unknown local intent -> return failure requiring real AI runtime
             return {
-                result_type: 'fact',
-                result_payload: { text: `Understood. ${rawText}` },
-                text: `Understood. ${rawText}`
+                result_type: 'failure',
+                result_payload: { error_title: 'AI Processing Required', reason: 'Instruction requires AI execution via Worker pipeline' },
+                text: `Instruction submitted for AI processing.`
             };
         }
 
@@ -4886,85 +4904,111 @@
 
             renderMainWorkspace(currentAgent);
 
-            // Dispatch message through the real task queue & worker pipeline
+            // Dispatch message through Supabase tasks table
             (async () => {
                 let taskDispatched = false;
                 let dispatchedTaskId = null;
+                const sb = getSupabaseClient() || _sb;
+
                 try {
-                    if (!currentAgent.backend_id) {
+                    if (!currentAgent.backend_id || !/^[0-9a-fA-F-]{36}$/.test(currentAgent.backend_id)) {
                         await persistAgentToBackend(currentAgent);
                     }
                     const agentId = currentAgent.backend_id || currentAgent.id;
-                    const res = await authedFetch(agentieApiUrl('api/tasks'), {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            agent_id: agentId,
-                            instruction: rawText
-                        })
-                    });
+                    const user = window.AgentieAuth?.getUser();
+                    const userId = user?.id || 'default_user';
 
-                    if (res.ok) {
-                        const data = await res.json();
-                        if (data && data.task) {
+                    if (sb) {
+                        const { data: task, error } = await sb
+                            .from("tasks")
+                            .insert({
+                                user_id: userId,
+                                agent_id: agentId,
+                                instruction: rawText,
+                                status: "pending"
+                            })
+                            .select()
+                            .single();
+
+                        if (error) {
+                            console.error('Supabase task insert error:', error);
+                            currentAgent.isWorking = false;
+                            currentAgent.messages.push({
+                                sender: 'agent',
+                                result_type: 'failure',
+                                result_payload: { error: error.message },
+                                text: `Task submission error: ${error.message}`
+                            });
+                            renderSidebar();
+                            if (dom.topAgentAvatarWrap) {
+                                dom.topAgentAvatarWrap.innerHTML = getOrbAvatarHtml(currentAgent.orbColor, 'xs', false, currentAgent.avatarShape || currentAgent.orbColor);
+                            }
+                            renderMainWorkspace(currentAgent);
+                            return;
+                        }
+
+                        if (task) {
                             taskDispatched = true;
-                            dispatchedTaskId = data.task.id;
-                            // Real task is now queued for worker execution with live Supabase Realtime tracking
-                            // Start polling backup in case Supabase Realtime is disconnected
+                            dispatchedTaskId = task.id;
+
+                            // Real task is now inserted in Supabase tasks table
+                            currentAgent.isWorking = true;
+                            renderSidebar();
+                            if (dom.topAgentAvatarWrap) {
+                                dom.topAgentAvatarWrap.innerHTML = getOrbAvatarHtml(currentAgent.orbColor, 'xs', true, currentAgent.avatarShape || currentAgent.orbColor);
+                            }
+                            renderMainWorkspace(currentAgent);
+
+                            // Backup polling on Supabase tasks table
                             let pollCount = 0;
                             const pollInterval = setInterval(async () => {
                                 pollCount++;
-                                if (pollCount > 30 || currentAgent.messages.some(m => m.task_id === dispatchedTaskId && m.sender === 'agent')) {
+                                if (pollCount > 40 || currentAgent.messages.some(m => m.task_id === dispatchedTaskId && m.sender === 'agent')) {
                                     clearInterval(pollInterval);
                                     return;
                                 }
                                 try {
-                                    const pollRes = await authedFetch(agentieApiUrl(`api/tasks?agent_id=${agentId}`));
-                                    if (pollRes.ok) {
-                                        const pData = await pollRes.json();
-                                        const found = (pData.tasks || []).find(t => t.id === dispatchedTaskId);
-                                        if (found && (found.status === 'done' || found.status === 'failed' || found.status === 'needs_approval')) {
-                                            if (typeof applyTaskResultToAgent === 'function') {
-                                                applyTaskResultToAgent(currentAgent, found);
-                                            }
-                                            clearInterval(pollInterval);
-                                        }
+                                    const { data: updatedTask } = await sb
+                                        .from("tasks")
+                                        .select("*")
+                                        .eq("id", dispatchedTaskId)
+                                        .single();
+                                    if (updatedTask && (updatedTask.status === 'done' || updatedTask.status === 'failed' || updatedTask.status === 'needs_approval')) {
+                                        applyTaskResultToAgent(currentAgent, updatedTask);
+                                        clearInterval(pollInterval);
                                     }
                                 } catch (pErr) {}
                             }, 1500);
                         }
-                    }
-                } catch (err) {
-                    console.log('Backend task dispatch error:', err.message);
-                }
-
-                if (!taskDispatched) {
-                    // Fallback to local rule processor if backend offline
-                    setTimeout(() => {
+                    } else {
+                        console.error('Supabase client unavailable for task dispatch');
                         currentAgent.isWorking = false;
-                        const activityResult = processPluginActivity(rawText, file);
-
-                        if (typeof activityResult === 'object' && activityResult !== null) {
-                            currentAgent.messages.push({
-                                sender: 'agent',
-                                result_type: activityResult.result_type || 'fact',
-                                result_payload: activityResult.result_payload || {},
-                                text: activityResult.text || ''
-                            });
-                        } else {
-                            currentAgent.messages.push({
-                                sender: 'agent',
-                                result_type: 'fact',
-                                text: activityResult
-                            });
-                        }
-
+                        currentAgent.messages.push({
+                            sender: 'agent',
+                            result_type: 'failure',
+                            result_payload: { error: 'Supabase client not initialized' },
+                            text: 'Unable to connect to Supabase database to submit task.'
+                        });
                         renderSidebar();
                         if (dom.topAgentAvatarWrap) {
                             dom.topAgentAvatarWrap.innerHTML = getOrbAvatarHtml(currentAgent.orbColor, 'xs', false, currentAgent.avatarShape || currentAgent.orbColor);
                         }
                         renderMainWorkspace(currentAgent);
-                    }, 850);
+                    }
+                } catch (err) {
+                    console.error('Task dispatch exception:', err.message);
+                    currentAgent.isWorking = false;
+                    currentAgent.messages.push({
+                        sender: 'agent',
+                        result_type: 'failure',
+                        result_payload: { error: err.message },
+                        text: `Task failed: ${err.message}`
+                    });
+                    renderSidebar();
+                    if (dom.topAgentAvatarWrap) {
+                        dom.topAgentAvatarWrap.innerHTML = getOrbAvatarHtml(currentAgent.orbColor, 'xs', false, currentAgent.avatarShape || currentAgent.orbColor);
+                    }
+                    renderMainWorkspace(currentAgent);
                 }
             })();
         }
@@ -5759,15 +5803,50 @@
         // =========================================================================
         async function persistAgentToBackend(agent) {
             if (!agent) return;
-            try {
-                const payload = {
-                    role: agent.role || 'General Assistant',
-                    goal: agent.goal || 'Execute workplace tasks and manage automated workflows.',
-                    allowed_plugins: agent.allowed_plugins || ['gmail', 'gcal', 'notion']
-                };
-                if (agent.name && !agent.name.startsWith('New Agentie') && agent.name_source === 'user') {
-                    payload.name = agent.name;
+            const sb = getSupabaseClient() || _sb;
+            const user = window.AgentieAuth?.getUser();
+            const userId = user?.id || 'default_user';
+            const payload = {
+                user_id: userId,
+                role: agent.role || 'General Assistant',
+                goal: agent.goal || 'Execute workplace tasks and manage automated workflows.',
+                system_prompt: agent.system_prompt || `You are ${agent.name || 'Agentie'}.`,
+                allowed_plugins: agent.allowed_plugins || ['gmail', 'gcal', 'notion'],
+                auto_approved_actions: agent.auto_approved_actions || [],
+                status: 'active'
+            };
+            if (agent.name && !agent.name.startsWith('New Agentie') && agent.name_source === 'user') {
+                payload.name = agent.name;
+                payload.name_source = 'user';
+            } else {
+                payload.name = agent.name || 'New Agentie';
+                payload.name_source = 'auto';
+            }
+
+            if (sb) {
+                try {
+                    if (agent.backend_id && /^[0-9a-fA-F-]{36}$/.test(agent.backend_id)) {
+                        payload.id = agent.backend_id;
+                        const { data } = await sb.from("agents").upsert(payload).select().single();
+                        if (data) {
+                            agent.backend_id = data.id;
+                            agent.id = data.id;
+                        }
+                    } else {
+                        const { data } = await sb.from("agents").insert(payload).select().single();
+                        if (data) {
+                            agent.backend_id = data.id;
+                            agent.id = data.id;
+                        }
+                    }
+                    renderSidebar();
+                    return;
+                } catch (err) {
+                    console.warn('Supabase agent persist status:', err.message);
                 }
+            }
+
+            try {
                 const res = await authedFetch(agentieApiUrl('api/agents'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -5857,12 +5936,9 @@
 
         let realtimeChannel = null;
         function initSupabaseRealtime() {
-            if (window.supabase && typeof window.supabase.createClient === 'function') {
+            const client = getSupabaseClient() || (window.supabase && typeof window.supabase.createClient === 'function' ? window.supabase.createClient(localStorage.getItem('supabase_url') || 'https://cugaysbdpfzunwwlbfsn.supabase.co', localStorage.getItem('supabase_anon_key') || 'mock_anon_key') : null);
+            if (client && typeof client.channel === 'function') {
                 try {
-                    const sbUrl = localStorage.getItem('supabase_url') || 'https://cugaysbdpfzunwwlbfsn.supabase.co';
-                    const sbAnon = localStorage.getItem('supabase_anon_key') || 'mock_anon_key';
-                    const client = window.supabase.createClient(sbUrl, sbAnon);
-                    
                     realtimeChannel = client.channel('public:tasks')
                         .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload) => {
                             const task = payload.new;

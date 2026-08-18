@@ -9,19 +9,55 @@ const app = express();
 app.use(express.json());
 
 app.post("/enqueue", async (req, res) => {
-  const { taskId } = req.body;
+  const taskId = req.body?.taskId || req.body?.task_id || req.body?.id || req.body?.record?.id;
   if (!taskId) return res.status(400).json({ error: "taskId is required" });
   try {
-    await agentTaskQueue.add("run-task", { taskId }, {
+    await agentTaskQueue.add("run-task", {
+      taskId,
+      agentId: req.body?.agentId || req.body?.agent_id || req.body?.record?.agent_id,
+      userId: req.body?.userId || req.body?.user_id || req.body?.record?.user_id,
+    }, {
       attempts: 3,
       backoff: { type: "exponential", delay: 5000 },
       removeOnComplete: 500,
       removeOnFail: 500,
     });
-    res.json({ ok: true });
+    res.json({ ok: true, taskId });
   } catch (err) {
     console.error("[worker] enqueue failed:", err.message);
     res.status(503).json({ error: "Queue unavailable" });
+  }
+});
+
+app.post("/resume", async (req, res) => {
+  const taskId = req.body?.taskId || req.body?.task_id || req.body?.id || req.body?.record?.id;
+  if (!taskId) return res.status(400).json({ error: "taskId is required" });
+  try {
+    await agentTaskQueue.add("run-task", { taskId, resume: true }, {
+      attempts: 3,
+      backoff: { type: "exponential", delay: 5000 },
+      removeOnComplete: 500,
+      removeOnFail: 500,
+    });
+    res.json({ ok: true, taskId, resumed: true });
+  } catch (err) {
+    console.error("[worker] resume failed:", err.message);
+    res.status(503).json({ error: "Queue unavailable" });
+  }
+});
+
+app.get("/metrics", async (req, res) => {
+  try {
+    const [waiting, active, completed, failed, delayed] = await Promise.all([
+      agentTaskQueue.getWaitingCount(),
+      agentTaskQueue.getActiveCount(),
+      agentTaskQueue.getCompletedCount(),
+      agentTaskQueue.getFailedCount(),
+      agentTaskQueue.getDelayedCount(),
+    ]);
+    res.json({ ok: true, counts: { waiting, active, completed, failed, delayed } });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
   }
 });
 
