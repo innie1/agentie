@@ -14,8 +14,11 @@
     "bullmq": "^5.41.6",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
+    "docx": "^9.5.1",
+    "exceljs": "^4.4.0",
     "express": "^4.21.2",
-    "ioredis": "^5.5.0"
+    "ioredis": "^5.5.0",
+    "pdf-lib": "^1.17.1"
   },
   "engines": {
     "node": ">=18.0.0"
