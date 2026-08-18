@@ -1,8 +1,9 @@
-// Agentie plugin compatibility layer. Uses the existing marketplace UI; it keeps the
-// existing visual design while making the frontend catalog authoritative from the backend.
+// Agentie plugin compatibility layer. Uses the existing marketplace UI; it only fills
+// missing capability metadata and routes API-key plugins through the real backend.
 (function () {
-  const API_KEY_PLUGINS = new Set(['agentmail','discord','telegram','whatsapp','twilio','hubspot','postgres','stripe','shopify','aws']);
+  const API_KEY_PLUGINS = new Set(['github','agentmail','discord','telegram','whatsapp','twilio','hubspot','postgres','stripe','shopify','aws']);
   const FIELD_DEFS = {
+    github: [['access_token','GitHub personal access token']],
     agentmail: [['api_key','AgentMail API key']],
     stripe: [['api_key','Stripe secret key']],
     shopify: [['shop_domain','Shop domain (e.g. myshop.myshopify.com)'],['admin_access_token','Shopify Admin API access token']],
@@ -23,74 +24,49 @@
     return fetch(url, Object.assign({}, options || {}, {headers}));
   }
 
-  function ensureAgentMail() {
-    if (typeof state === 'undefined' || !Array.isArray(state.plugins)) return false;
-    if (!state.plugins.some(p => p.id === 'agentmail')) {
-      state.plugins.push({
-        id:'agentmail', name:'AgentMail', section:'Email & Communication', auth_type:'api_key',
-        desc:'Give agents their own email inboxes and identities for sending, receiving, and replying to email.',
-        added:false, keywords:['agentmail','agent mail','agent inbox','agent email','email identity']
-      });
-      return true;
-    }
-    return false;
-  }
-
-  function addLogo() {
-    if (typeof getPluginLogoSvg !== 'function') return;
-    const original = getPluginLogoSvg;
-    window.getPluginLogoSvg = function(id) {
-      if (id === 'agentmail') return '<img src="https://cdn.simpleicons.org/maildotru/ffffff" alt="AgentMail" class="w-5 h-5 object-contain" loading="lazy" onerror="this.outerHTML=\'<span class=\\\'material-symbols-outlined text-[18px] text-white\\\'>mail</span>\'"/>';
-      return original(id);
+  function normalizeBackendPlugin(p) {
+    return {
+      id: p.id,
+      name: p.name || p.id,
+      section: p.category || p.section || 'Featured',
+      desc: p.description || p.desc || '',
+      added: !!p.added,
+      auth_type: p.auth_type || 'oauth',
+      icon_url: p.icon_url || p.logo_url || null,
+      keywords: Array.isArray(p.keywords) ? p.keywords : [p.id, p.name || '']
     };
   }
 
-  // The backend is the source of truth. Merge it into the existing UI state so
-  // new plugins can never silently exist only in the backend. Existing local
-  // metadata is preserved for UI wording/keywords while auth/category/status
-  // from the backend take precedence when available.
-  async function syncBackendCatalog() {
-    try {
-      if (typeof state === 'undefined' || !Array.isArray(state.plugins)) return;
-      const res = await api('api/plugins');
-      if (!res.ok) return;
-      const payload = await res.json().catch(() => ({}));
-      const remote = Array.isArray(payload.plugins) ? payload.plugins : [];
-      for (const remotePlugin of remote) {
-        if (!remotePlugin || !remotePlugin.id) continue;
-        const local = state.plugins.find(p => p.id === remotePlugin.id);
-        if (local) {
-          Object.assign(local, {
-            name: remotePlugin.name || local.name,
-            section: remotePlugin.category || local.section,
-            auth_type: remotePlugin.auth_type || local.auth_type,
-            desc: remotePlugin.description || local.desc,
-            added: !!remotePlugin.added,
-            added_status: remotePlugin.added_status || null,
-            logo: remotePlugin.logo || local.logo,
-            icon_url: remotePlugin.icon_url || local.icon_url
-          });
-        } else {
-          state.plugins.push({
-            id: remotePlugin.id,
-            name: remotePlugin.name || remotePlugin.id,
-            section: remotePlugin.category || 'Other',
-            auth_type: remotePlugin.auth_type || 'oauth',
-            desc: remotePlugin.description || '',
-            added: !!remotePlugin.added,
-            added_status: remotePlugin.added_status || null,
-            logo: remotePlugin.logo || null,
-            icon_url: remotePlugin.icon_url || null,
-            keywords: [String(remotePlugin.name || remotePlugin.id).toLowerCase()]
-          });
-        }
+  function mergeBackendCatalog(backendPlugins) {
+    if (typeof state === 'undefined' || !Array.isArray(state.plugins)) return;
+    const localById = new Map(state.plugins.map(p => [p.id, p]));
+    backendPlugins.forEach(raw => {
+      const incoming = normalizeBackendPlugin(raw);
+      const current = localById.get(incoming.id);
+      if (current) {
+        current.name = incoming.name || current.name;
+        current.section = incoming.section || current.section;
+        current.desc = incoming.desc || current.desc;
+        current.added = incoming.added;
+        current.auth_type = incoming.auth_type;
+        current.icon_url = incoming.icon_url || current.icon_url;
+      } else {
+        state.plugins.push(incoming);
+        localById.set(incoming.id, incoming);
       }
-      ensureAgentMail();
-      if (typeof renderPlugins === 'function') renderPlugins();
-      if (typeof updatePluginsBadges === 'function') updatePluginsBadges();
-    } catch (err) {
-      console.warn('[Agentie] plugin catalog sync:', err.message || err);
-    }
+    });
+  }
+
+  function addLogo() {
+    if (typeof getPluginLogoSvg !== 'function' || window.__agentieLogoPatch) return;
+    const original = getPluginLogoSvg;
+    window.getPluginLogoSvg = function(id) {
+      const plugin = (typeof state !== 'undefined' && Array.isArray(state.plugins)) ? state.plugins.find(p => p.id === id) : null;
+      if (plugin && plugin.icon_url) return '<img src="' + plugin.icon_url + '" alt="' + (plugin.name || id) + '" class="w-5 h-5 object-contain" loading="lazy" onerror="this.outerHTML=\'<span class=\\\'material-symbols-outlined text-[18px] text-white\\\'>extension</span>\'"/>';
+      if (id === 'agentmail') return '<span class="material-symbols-outlined text-[20px] text-white">alternate_email</span>';
+      return original(id);
+    };
+    window.__agentieLogoPatch = true;
   }
 
   async function connectApiPlugin(plugin) {
@@ -109,7 +85,6 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) throw new Error(data.error || 'Credential validation failed');
       plugin.added = true;
-      plugin.added_status = 'active';
       if (typeof updatePluginsBadges === 'function') updatePluginsBadges();
       if (typeof renderPlugins === 'function') renderPlugins();
     } catch (err) {
@@ -118,33 +93,44 @@
     }
   }
 
-  function install() {
+  async function syncCatalog() {
+    try {
+      const res = await api('api/plugins');
+      if (!res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      if (Array.isArray(data.plugins)) mergeBackendCatalog(data.plugins);
+    } catch (_) {}
+  }
+
+  function installClickBridge() {
+    if (document.__agentieApiPluginPatch) return;
+    document.addEventListener('click', function (event) {
+      const btn = event.target && event.target.closest ? event.target.closest('.toggle-plugin-btn') : null;
+      if (!btn) return;
+      const id = btn.getAttribute('data-id');
+      if (!API_KEY_PLUGINS.has(id)) return;
+      const plugin = state.plugins.find(p => p.id === id);
+      if (!plugin || plugin.added) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      connectApiPlugin(plugin);
+    }, true);
+    document.__agentieApiPluginPatch = true;
+  }
+
+  async function install() {
     if (typeof state === 'undefined' || typeof renderPlugins !== 'function') return false;
-    ensureAgentMail();
+    await syncCatalog();
     addLogo();
-    if (!document.__agentieApiPluginPatch) {
-      document.addEventListener('click', function (event) {
-        const btn = event.target && event.target.closest ? event.target.closest('.toggle-plugin-btn') : null;
-        if (!btn) return;
-        const id = btn.getAttribute('data-id');
-        if (!API_KEY_PLUGINS.has(id)) return;
-        const plugin = state.plugins.find(p => p.id === id);
-        if (!plugin || plugin.added) return;
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        connectApiPlugin(plugin);
-      }, true);
-      document.__agentieApiPluginPatch = true;
-    }
+    installClickBridge();
     renderPlugins();
     if (typeof updatePluginsBadges === 'function') updatePluginsBadges();
-    syncBackendCatalog();
     return true;
   }
 
   let tries = 0;
-  const timer = setInterval(() => {
+  const timer = setInterval(async () => {
     tries++;
-    try { if (install() || tries > 400) clearInterval(timer); } catch (err) { if (tries > 400) clearInterval(timer); }
+    try { if (await install() || tries > 400) clearInterval(timer); } catch (err) { if (tries > 400) clearInterval(timer); }
   }, 50);
 })();
