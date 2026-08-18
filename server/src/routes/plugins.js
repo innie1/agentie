@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { supabaseAdmin } from "../supabaseClient.js";
 import { encrypt } from "../lib/crypto.js";
 import { OAUTH_PROVIDERS } from "../lib/oauthProviders.js";
+import { withPluginAsset } from "../lib/pluginAssets.js";
 
 const router = express.Router();
 
@@ -13,9 +14,9 @@ const DEFAULT_PLUGINS = [
   { id: 'slack', name: 'Slack', category: 'Featured', auth_type: 'oauth', description: 'Monitor channels, send thread replies, and dispatch webhooks to your team.' },
   { id: 'github', name: 'GitHub', category: 'Featured', auth_type: 'oauth', description: 'Inspect pull requests, review commits, and query code repositories.' },
   { id: 'notion', name: 'Notion', category: 'Featured', auth_type: 'oauth', description: 'Sync knowledge bases, read workspace pages, and draft formatted docs.' },
-  { id: 'agentmail', name: 'AgentMail', category: 'Featured', auth_type: 'api_key', description: 'Give agents their own email inboxes so they can send, receive, search, and reply as themselves.' },
   { id: 'granola', name: 'Granola', category: 'Featured', auth_type: 'oauth', description: 'Access real-time meeting notes, transcripts, and AI action items.' },
   { id: 'outlook', name: 'Microsoft Outlook', category: 'Email & Communication', auth_type: 'oauth', description: 'Connect to Microsoft 365 Exchange mailboxes to read and draft emails.' },
+  { id: 'agentmail', name: 'AgentMail', category: 'Email & Communication', auth_type: 'api_key', description: 'Give agents their own email inboxes and identities for sending, receiving, and replying to email.' },
   { id: 'discord', name: 'Discord', category: 'Email & Communication', auth_type: 'api_key', description: 'Post notifications, manage community channels, and interact via bot tokens.' },
   { id: 'telegram', name: 'Telegram', category: 'Email & Communication', auth_type: 'api_key', description: 'Send direct messages, broadcast alerts, and manage Telegram bots.' },
   { id: 'whatsapp', name: 'WhatsApp Business', category: 'Email & Communication', auth_type: 'api_key', description: 'Automate customer support chats and dispatch WhatsApp notifications.' },
@@ -41,33 +42,35 @@ const DEFAULT_PLUGINS = [
 
 router.get("/", async (req, res) => {
   const userId = req.user.id;
-  let dbPlugins = [];
+  let plugins = [];
   let addedMap = {};
   try {
-    const result = await supabaseAdmin.from("plugins").select("*").eq("status", "active");
-    dbPlugins = result.data || [];
-    const { data: userPlugins } = await supabaseAdmin.from("user_plugins").select("plugin_id,status").eq("user_id", userId);
-    addedMap = Object.fromEntries((userPlugins || []).map((p) => [p.plugin_id, p]));
-  } catch {}
-  const byId = new Map(DEFAULT_PLUGINS.map(p => [p.id, p]));
-  for (const p of dbPlugins) byId.set(p.id, { ...byId.get(p.id), ...p });
-  res.json({ plugins: [...byId.values()].map(p => ({ ...p, added: !!addedMap[p.id], added_status: addedMap[p.id]?.status ?? null })) });
+    const { data: dbPlugins, error: pErr } = await supabaseAdmin.from("plugins").select("*").eq("status", "active");
+    if (!pErr && dbPlugins?.length) {
+      plugins = dbPlugins;
+      const { data: userPlugins } = await supabaseAdmin.from("user_plugins").select("plugin_id,status").eq("user_id", userId);
+      addedMap = Object.fromEntries((userPlugins || []).map((p) => [p.plugin_id, p]));
+    } else plugins = DEFAULT_PLUGINS;
+  } catch { plugins = DEFAULT_PLUGINS; }
+  if (!plugins.some((p) => p.id === "agentmail")) plugins.push(DEFAULT_PLUGINS.find((p) => p.id === "agentmail"));
+  res.json({ plugins: plugins.map(p => ({ ...withPluginAsset(p), added: !!addedMap[p.id], added_status: addedMap[p.id]?.status ?? null })) });
 });
 
 router.post("/:pluginId/start", async (req, res) => {
   const userId = req.user.id;
   const { pluginId } = req.params;
   const { data: plugin, error } = await supabaseAdmin.from("plugins").select("*").eq("id", pluginId).single();
-  if (error || !plugin) return res.status(404).json({ error: "Unknown plugin" });
-  if (plugin.auth_type !== "oauth") return res.status(400).json({ error: "This plugin uses api_key flow, call /add-api-key instead" });
+  const pluginDef = plugin || DEFAULT_PLUGINS.find((p) => p.id === pluginId);
+  if (error && !pluginDef || !pluginDef) return res.status(404).json({ error: "Unknown plugin" });
+  if (pluginDef.auth_type !== "oauth") return res.status(400).json({ error: "This plugin uses api_key flow, call /add-api-key instead" });
   const provider = OAUTH_PROVIDERS[pluginId];
   if (!provider?.clientId) return res.status(500).json({ error: `No OAuth app configured for '${pluginId}'. Set its client id/secret in server env vars.` });
   const state = crypto.randomBytes(24).toString("hex");
   const { error: insertErr } = await supabaseAdmin.from("pending_auth").insert({ user_id: userId, plugin_id: pluginId, state });
   if (insertErr) return res.status(500).json({ error: insertErr.message });
   const redirectUri = `${process.env.APP_URL}/api/plugins/callback`;
-  const params = new URLSearchParams({ client_id: provider.clientId, redirect_uri: redirectUri, scope: (plugin.oauth_scopes || []).join(" "), response_type: "code", state, access_type: "offline", prompt: "consent" });
-  res.json({ authorize_url: `${plugin.oauth_authorize_url}?${params.toString()}` });
+  const params = new URLSearchParams({ client_id: provider.clientId, redirect_uri: redirectUri, scope: (pluginDef.oauth_scopes || []).join(" "), response_type: "code", state, access_type: "offline", prompt: "consent" });
+  res.json({ authorize_url: `${pluginDef.oauth_authorize_url}?${params.toString()}` });
 });
 
 export async function oauthCallbackHandler(req, res) {
@@ -77,12 +80,13 @@ export async function oauthCallbackHandler(req, res) {
   if (pErr || !pending) return res.status(400).send("Invalid or expired auth attempt. Please try Add again.");
   const provider = OAUTH_PROVIDERS[pending.plugin_id];
   const { data: plugin } = await supabaseAdmin.from("plugins").select("*").eq("id", pending.plugin_id).single();
+  const pluginDef = plugin || DEFAULT_PLUGINS.find((p) => p.id === pending.plugin_id);
   const redirectUri = `${process.env.APP_URL}/api/plugins/callback`;
   try {
     const tokenReqConfig = { headers: { "Content-Type": "application/x-www-form-urlencoded", ...(provider.tokenHeaders || {}) } };
     if (provider.basicAuth) tokenReqConfig.auth = provider.basicAuth();
     const body = new URLSearchParams(provider.tokenBody(code, redirectUri));
-    const tokenRes = await axios.post(plugin.oauth_token_url, body, tokenReqConfig);
+    const tokenRes = await axios.post(pluginDef.oauth_token_url, body, tokenReqConfig);
     const parsed = provider.parseToken(tokenRes.data);
     if (!parsed.access_token) throw new Error("Provider did not return an access_token");
     const expiresAt = parsed.expires_in ? new Date(Date.now() + parsed.expires_in * 1000).toISOString() : null;
@@ -103,8 +107,7 @@ router.post("/:pluginId/add-api-key", async (req, res) => {
   const { api_key, credentials } = req.body || {};
   const supplied = credentials && typeof credentials === "object" ? credentials : (api_key ? { api_key } : null);
   if (!supplied) return res.status(400).json({ error: "credentials are required" });
-  const dbResult = await supabaseAdmin.from("plugins").select("*").eq("id", pluginId).maybeSingle();
-  const plugin = dbResult.data || DEFAULT_PLUGINS.find(p => p.id === pluginId);
+  const plugin = (await supabaseAdmin.from("plugins").select("*").eq("id", pluginId).single()).data || DEFAULT_PLUGINS.find((p) => p.id === pluginId);
   if (!plugin) return res.status(404).json({ error: "Unknown plugin" });
   if (plugin.auth_type !== "api_key") return res.status(400).json({ error: "This plugin uses OAuth, not an API key" });
   const valid = await testApiKey(pluginId, supplied);
@@ -125,8 +128,9 @@ async function testApiKey(pluginId, c) {
   try {
     switch (pluginId) {
       case "agentmail": {
-        if (!c.api_key) return { ok: false, error: "AgentMail API key is required" };
-        const r = await axios.get("https://api.agentmail.to/v0/inboxes", { headers: { Authorization: `Bearer ${c.api_key}` }, params: { limit: 1 } });
+        const key = c.api_key || c.apiKey || c.key;
+        if (!key) return { ok: false, error: "AgentMail API key is required" };
+        const r = await axios.get("https://api.agentmail.to/v0/inboxes", { headers: { Authorization: `Bearer ${key}` }, params: { limit: 1 } });
         return { ok: r.status === 200 };
       }
       case "stripe": {
