@@ -4,9 +4,7 @@ import { getModelForRole } from "./modelConfig.js";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 /**
- * Fast conversational path. Simple chat should not wait for Redis/BullMQ.
- * Conversation history is supplied by the task route so follow-up messages
- * remain part of the same agent conversation.
+ * Fast conversational path. Ordinary conversation must never create a task.
  */
 export async function fastChat({ agent, message, history = [] }) {
   const model = await getModelForRole("fast");
@@ -47,13 +45,20 @@ export async function fastChat({ agent, message, history = [] }) {
   return { text, model };
 }
 
-// Deliberately conservative: action-oriented requests remain on the task queue.
+/**
+ * Conservative task boundary: explicit action requests become tasks.
+ * Everything else is ordinary conversation and must stay out of the tasks table.
+ */
 export function isFastChatMessage(message = "") {
   const text = message.trim();
-  if (!text || text.length > 280) return false;
+  if (!text || text.length > 4000) return false;
 
-  const actionPattern = /\b(create|build|make|start|launch|deploy|send|delete|remove|update|change|edit|research|find|search|analy[sz]e|plan|schedule|book|buy|pay|publish|post|email|message|call|delegate|assign|automate|run|execute|organize|organise|generate a report|set up|setup)\b/i;
-  if (actionPattern.test(text)) return false;
+  const explicitTaskPattern = /\b(create a task|create task|add a task|new task|task to|make this a task|turn this into a task|execute|run this|deploy this|send this|delete this|remove this|update this|schedule this|book this|buy this|pay this|publish this|post this|email this|message them|call them|delegate this|assign this|automate this|generate a report|set up this|setup this)\b/i;
+  if (explicitTaskPattern.test(text)) return false;
 
-  return /^(hi|hello|hey|yo|good morning|good afternoon|good evening|thanks|thank you|ok|okay|what|why|how|when|where|who|can you|could you|tell me|explain|help me understand|is |are |do |does |will |would |should |i |my )/i.test(text);
+  // A direct action verb at the beginning is also treated as a task.
+  const leadingActionPattern = /^(create|build|make|start|launch|deploy|send|delete|remove|update|change|edit|research|find|search|analy[sz]e|plan|schedule|book|buy|pay|publish|post|email|message|call|delegate|assign|automate|run|execute|organize|organise)\b/i;
+  if (leadingActionPattern.test(text)) return false;
+
+  return true;
 }
