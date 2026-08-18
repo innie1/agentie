@@ -1321,6 +1321,137 @@
         </div>
     </div>
 
+    <!-- AGENTIE AUTH OVERLAY & ENGINE -->
+    <style>
+      /* Minimal, isolated login overlay */
+      #agentie-auth-overlay {
+        position: fixed; inset: 0; z-index: 99999;
+        background: #0a0d10;
+        display: flex; align-items: center; justify-content: center;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      #agentie-auth-overlay.hidden { display: none; }
+      #agentie-auth-box {
+        background: #12161b; border: 1px solid #232a31; border-radius: 14px;
+        padding: 32px; width: 320px; color: #e8edf1;
+      }
+      #agentie-auth-box h2 { margin: 0 0 4px; font-size: 20px; }
+      #agentie-auth-box p { margin: 0 0 20px; color: #8a94a0; font-size: 13px; }
+      #agentie-auth-box input {
+        width: 100%; padding: 10px 12px; margin-bottom: 10px;
+        background: #161b21; border: 1px solid #232a31; border-radius: 8px;
+        color: #e8edf1; font-size: 14px; box-sizing: border-box;
+      }
+      #agentie-auth-box button {
+        width: 100%; padding: 10px; margin-top: 6px;
+        background: #4fd8e8; color: #06161a; border: none; border-radius: 8px;
+        font-weight: 600; font-size: 14px; cursor: pointer;
+      }
+      #agentie-auth-box button.secondary {
+        background: transparent; color: #8a94a0; border: 1px solid #232a31; margin-top: 8px;
+      }
+      #agentie-auth-error { color: #e85f5f; font-size: 12.5px; margin-top: 8px; min-height: 16px; }
+    </style>
+
+    <div id="agentie-auth-overlay" class="hidden">
+      <div id="agentie-auth-box">
+        <h2>Sign in to Agentie</h2>
+        <p>Your agents, plugins, and tasks are tied to your account.</p>
+        <input id="agentie-auth-email" type="email" placeholder="Email" autocomplete="email" />
+        <input id="agentie-auth-password" type="password" placeholder="Password" autocomplete="current-password" />
+        <button id="agentie-auth-signin-btn">Sign In</button>
+        <button id="agentie-auth-signup-btn" class="secondary">Create Account</button>
+        <div id="agentie-auth-error"></div>
+      </div>
+    </div>
+
+    <script>
+      // ── Fill these in ──
+      const SUPABASE_URL = "https://cugaysbdpfzunwwlbfsn.supabase.co";
+      const SUPABASE_ANON_KEY = "PASTE_YOUR_SUPABASE_ANON_KEY_HERE"; // Settings → API → anon public
+
+      const _sb = (window.supabase && typeof window.supabase.createClient === 'function')
+        ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+        : null;
+
+      window.AgentieAuth = {
+        client: _sb,
+        _session: null,
+
+        async init() {
+          if (!_sb) return null;
+          try {
+            const { data } = await _sb.auth.getSession();
+            this._session = data?.session || null;
+
+            _sb.auth.onAuthStateChange((_event, session) => {
+              this._session = session;
+              this._toggleOverlay(!session);
+            });
+
+            this._toggleOverlay(!this._session);
+            this._wireForm();
+            return this._session;
+          } catch (err) {
+            console.warn('[AgentieAuth] Session check warning:', err.message);
+            return null;
+          }
+        },
+
+        getToken() {
+          return this._session?.access_token || null;
+        },
+
+        async signOut() {
+          if (_sb) await _sb.auth.signOut();
+        },
+
+        _toggleOverlay(show) {
+          const overlay = document.getElementById("agentie-auth-overlay");
+          if (overlay) overlay.classList.toggle("hidden", !show);
+        },
+
+        _wireForm() {
+          const emailEl = document.getElementById("agentie-auth-email");
+          const passEl = document.getElementById("agentie-auth-password");
+          const errEl = document.getElementById("agentie-auth-error");
+
+          const showError = (msg) => { if (errEl) errEl.textContent = msg; };
+
+          const signinBtn = document.getElementById("agentie-auth-signin-btn");
+          if (signinBtn) {
+            signinBtn.onclick = async () => {
+              showError("");
+              if (!_sb) return showError("Supabase client not initialized. Please set SUPABASE_ANON_KEY.");
+              const { error } = await _sb.auth.signInWithPassword({ email: emailEl.value, password: passEl.value });
+              if (error) showError(error.message);
+            };
+          }
+
+          const signupBtn = document.getElementById("agentie-auth-signup-btn");
+          if (signupBtn) {
+            signupBtn.onclick = async () => {
+              showError("");
+              if (!_sb) return showError("Supabase client not initialized. Please set SUPABASE_ANON_KEY.");
+              const { error } = await _sb.auth.signUp({ email: emailEl.value, password: passEl.value });
+              if (error) showError(error.message);
+              else showError("Check your email to confirm your account, then sign in.");
+            };
+          }
+        },
+      };
+
+      // Drop-in replacement for fetch() against the Agentie API — attaches the
+      // current session's bearer token automatically. Same call signature as fetch().
+      async function authedFetch(url, options = {}) {
+        const token = window.AgentieAuth ? window.AgentieAuth.getToken() : null;
+        const headers = { ...(options.headers || {}) };
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+        return fetch(url, { ...options, headers });
+      }
+    </script>
+
     <!-- INLINE ZERO-CACHE SCRIPT -->
     <script>
         // REAL BRAND / SERVICE OFFICIAL SVG LOGOS (CDN + VECTOR FALLBACKS)
@@ -2391,7 +2522,7 @@
                                 const taskId = msg.task_id || (msg.result_payload && msg.result_payload.action_id);
                                 if (taskId) {
                                     try {
-                                        await fetch(`http://localhost:4000/api/tasks/${taskId}/approve`, { method: 'POST' });
+                                        await authedFetch(`http://localhost:4000/api/tasks/${taskId}/approve`, { method: 'POST' });
                                     } catch (err) {
                                         console.warn('Approve task request error:', err);
                                     }
@@ -2415,7 +2546,7 @@
                                 const taskId = msg.task_id || (msg.result_payload && msg.result_payload.action_id);
                                 if (taskId) {
                                     try {
-                                        await fetch(`http://localhost:4000/api/tasks/${taskId}/reject`, { method: 'POST' });
+                                        await authedFetch(`http://localhost:4000/api/tasks/${taskId}/reject`, { method: 'POST' });
                                     } catch (err) {
                                         console.warn('Reject task request error:', err);
                                     }
@@ -3823,7 +3954,7 @@
                 let taskDispatched = false;
                 try {
                     const agentId = currentAgent.backend_id || currentAgent.id;
-                    const res = await fetch('http://localhost:4000/api/tasks', {
+                    const res = await authedFetch('http://localhost:4000/api/tasks', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -3943,7 +4074,7 @@
                             if (plugin.added) {
                                 // Disconnect plugin from backend
                                 try {
-                                    await fetch(`http://localhost:4000/api/plugins/${plugin.id}`, { method: 'DELETE' });
+                                    await authedFetch(`http://localhost:4000/api/plugins/${plugin.id}`, { method: 'DELETE' });
                                     plugin.added = false;
                                     updatePluginsBadges();
                                     renderPlugins();
@@ -3958,7 +4089,7 @@
                                     if (!key || !key.trim()) return;
                                     btn.textContent = 'Connecting...';
                                     try {
-                                        const res = await fetch(`http://localhost:4000/api/plugins/${plugin.id}/add-api-key`, {
+                                        const res = await authedFetch(`http://localhost:4000/api/plugins/${plugin.id}/add-api-key`, {
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json' },
                                             body: JSON.stringify({ api_key: key.trim() })
@@ -3980,7 +4111,7 @@
                                     // Real OAuth flow: POST /api/plugins/:pluginId/start
                                     btn.textContent = 'Connecting...';
                                     try {
-                                        const res = await fetch(`http://localhost:4000/api/plugins/${plugin.id}/start`, {
+                                        const res = await authedFetch(`http://localhost:4000/api/plugins/${plugin.id}/start`, {
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json' }
                                         });
@@ -4016,7 +4147,7 @@
 
         async function syncPluginsWithBackend() {
             try {
-                const res = await fetch('http://localhost:4000/api/plugins');
+                const res = await authedFetch('http://localhost:4000/api/plugins');
                 if (!res.ok) return;
                 const data = await res.json();
                 if (data && Array.isArray(data.plugins)) {
@@ -4143,7 +4274,7 @@
                             if (skill.installed) {
                                 // Uninstall account-wide: DELETE /api/skills/:skillId/install
                                 try {
-                                    await fetch(`http://localhost:4000/api/skills/${skill.id}/install`, { method: 'DELETE' });
+                                    await authedFetch(`http://localhost:4000/api/skills/${skill.id}/install`, { method: 'DELETE' });
                                     skill.installed = false;
                                     updateSkillsBadges();
                                     renderSkills();
@@ -4154,7 +4285,7 @@
                                 // Install account-wide: POST /api/skills/:skillId/install
                                 btn.textContent = 'Installing...';
                                 try {
-                                    const res = await fetch(`http://localhost:4000/api/skills/${skill.id}/install`, { method: 'POST' });
+                                    const res = await authedFetch(`http://localhost:4000/api/skills/${skill.id}/install`, { method: 'POST' });
                                     const data = await res.json();
                                     if (data && data.ok) {
                                         skill.installed = true;
@@ -4190,7 +4321,7 @@
 
         async function syncSkillsWithBackend() {
             try {
-                const res = await fetch('http://localhost:4000/api/skills');
+                const res = await authedFetch('http://localhost:4000/api/skills');
                 if (!res.ok) return;
                 const data = await res.json();
                 if (data && Array.isArray(data.skills)) {
@@ -4271,7 +4402,7 @@
 
                 // Fetch enabled skills from backend if available
                 try {
-                    const res = await fetch(`http://localhost:4000/api/skills/agent/${currentAgent.backend_id || currentAgent.id}`);
+                    const res = await authedFetch(`http://localhost:4000/api/skills/agent/${currentAgent.backend_id || currentAgent.id}`);
                     if (res.ok) {
                         const data = await res.json();
                         if (data && Array.isArray(data.library_enabled)) {
@@ -4310,12 +4441,12 @@
                         if (e.target.checked) {
                             if (!currentAgent.enabled_skills.includes(sId)) currentAgent.enabled_skills.push(sId);
                             try {
-                                await fetch(`http://localhost:4000/api/skills/agent/${agentId}/${sId}/enable`, { method: 'POST' });
+                                await authedFetch(`http://localhost:4000/api/skills/agent/${agentId}/${sId}/enable`, { method: 'POST' });
                             } catch (err) {}
                         } else {
                             currentAgent.enabled_skills = currentAgent.enabled_skills.filter(id => id !== sId);
                             try {
-                                await fetch(`http://localhost:4000/api/skills/agent/${agentId}/${sId}/enable`, { method: 'DELETE' });
+                                await authedFetch(`http://localhost:4000/api/skills/agent/${agentId}/${sId}/enable`, { method: 'DELETE' });
                             } catch (err) {}
                         }
                     });
@@ -4470,7 +4601,7 @@
 
                 // 1. Try to fetch from live backend endpoint
                 try {
-                    const res = await fetch('http://localhost:4000/api/tokens/usage');
+                    const res = await authedFetch('http://localhost:4000/api/tokens/usage');
                     if (res.ok) {
                         const data = await res.json();
                         if (data.success) {
@@ -4673,7 +4804,7 @@
                 if (agent.name && !agent.name.startsWith('New Agentie') && agent.name_source === 'user') {
                     payload.name = agent.name;
                 }
-                const res = await fetch('http://localhost:4000/api/agents', {
+                const res = await authedFetch('http://localhost:4000/api/agents', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -4770,7 +4901,12 @@
             }
         }
 
-        function init() {
+        async function init() {
+            // FIX 1: Initialize Auth Session & Overlay before anything else runs
+            if (window.AgentieAuth) {
+                await window.AgentieAuth.init();
+            }
+
             dom.drawerArrowToggle.addEventListener('click', toggleLeftSidebar);
             dom.topComputerBtn.addEventListener('click', toggleRightDrawer);
             dom.closeRightDrawerBtn.addEventListener('click', toggleRightDrawer);

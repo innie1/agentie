@@ -4,6 +4,113 @@ import { runPluginAction, IRREVERSIBLE_ACTIONS } from "./pluginRunner.js";
 
 const MAX_STEPS = 8; // hard ceiling so a bad plan can't loop forever
 
+// ── Routine matching + replay (mirrors server/src/services/routineService.js logic,
+// duplicated here because the worker is a separate process/deploy from the server) ──
+
+async function matchRoutineTrigger(agentId, instruction) {
+  if (!instruction || !agentId) return null;
+  const cleanInst = instruction.toLowerCase().trim();
+
+  const { data: routines } = await supabaseAdmin
+    .from("routines")
+    .select("*")
+    .eq("agent_id", agentId)
+    .eq("status", "active");
+
+  for (const routine of routines || []) {
+    if (cleanInst === routine.name.toLowerCase() || cleanInst.includes(routine.name.toLowerCase())) return routine;
+    if (Array.isArray(routine.trigger_pattern)) {
+      for (const pattern of routine.trigger_pattern) {
+        const cleanPattern = pattern.toLowerCase().trim();
+        if (cleanInst.includes(cleanPattern) || cleanPattern.includes(cleanInst)) return routine;
+      }
+    }
+  }
+  return null;
+}
+
+function adaptStepParams(step, context = {}) {
+  const params = { ...step.params };
+  const now = new Date();
+  const todayStr = now.toISOString().split("T")[0];
+  for (const key of Object.keys(params)) {
+    if (typeof params[key] === "string") {
+      params[key] = params[key]
+        .replace(/\{\{today_date\}\}/g, todayStr)
+        .replace(/\{\{current_time\}\}/g, now.toLocaleTimeString())
+        .replace(/\{\{today_summary\}\}/g, context.summary || `Summary for ${todayStr}`);
+    }
+  }
+  return params;
+}
+
+async function recordRoutineRun(routineId, status) {
+  const updates = { last_run_at: new Date().toISOString(), last_run_status: status, updated_at: new Date().toISOString() };
+  const { data: routine } = await supabaseAdmin.from("routines").update(updates).eq("id", routineId).select().single();
+  if (status === "success" && routine) {
+    await supabaseAdmin.from("routines").update({ success_count: (routine.success_count || 0) + 1 }).eq("id", routineId);
+  }
+}
+
+// Replays a matched routine's saved steps directly instead of asking the model to
+// re-plan from scratch. Returns true if it fully handled the task (completed, failed,
+// or paused for approval) — false only if there's nothing to replay (shouldn't happen
+// given the caller already confirmed a match, but kept defensive).
+async function replayRoutine({ routine, agent, task }) {
+  const steps = routine.steps || [];
+  if (!steps.length) return false;
+
+  for (const step of steps) {
+    const isIrreversible = IRREVERSIBLE_ACTIONS.has(step.action) && !agent.auto_approved_actions.includes(step.action);
+    const params = adaptStepParams(step);
+
+    if (isIrreversible) {
+      await supabaseAdmin.from("tasks").update({
+        status: "needs_approval",
+        result_type: "irreversible_pending",
+        result_payload: {
+          action: step.action,
+          plugin_id: step.plugin_id,
+          params,
+          description: `${agent.name} wants to run "${routine.name}" step: ${step.action} on ${step.plugin_id}`,
+          routine_id: routine.id,
+        },
+        updated_at: new Date().toISOString(),
+      }).eq("id", task.id);
+      // NOTE: resuming a paused routine step-by-step isn't implemented in this pass —
+      // once approved, the task can be safely re-run as a normal reasoning task by
+      // clearing routine context, since the risky step will have already gone through
+      // approval once resolved. This keeps the approval gate airtight even for routines.
+      return true;
+    }
+
+    const result = await runPluginAction({
+      userId: task.user_id, agentId: agent.id, taskId: task.id,
+      pluginId: step.plugin_id, action: step.action, params,
+    });
+
+    if (!result.ok) {
+      await supabaseAdmin.from("tasks").update({
+        status: "failed",
+        result_type: "failure",
+        result_payload: { error: result.error, action: step.action, routine_id: routine.id },
+        updated_at: new Date().toISOString(),
+      }).eq("id", task.id);
+      await recordRoutineRun(routine.id, "failed");
+      return true;
+    }
+  }
+
+  await supabaseAdmin.from("tasks").update({
+    status: "done",
+    result_type: "task_complete",
+    result_payload: { text: `Completed routine "${routine.name}" (${steps.length} step${steps.length > 1 ? "s" : ""}).`, routine_id: routine.id },
+    updated_at: new Date().toISOString(),
+  }).eq("id", task.id);
+  await recordRoutineRun(routine.id, "success");
+  return true;
+}
+
 export async function runTask(taskId) {
   const { data: task, error: taskErr } = await supabaseAdmin.from("tasks").select("*").eq("id", taskId).single();
   if (taskErr || !task) {
@@ -26,8 +133,18 @@ export async function runTask(taskId) {
 
   await supabaseAdmin.from("tasks").update({ status: "in_progress", updated_at: new Date().toISOString() }).eq("id", taskId);
 
-  // ── Step 1: cheap intent check — skip the whole pipeline for small talk ──
+  // ── Step 0: does a taught routine match this instruction? Replay it instead of re-planning. ──
+  // Skipped on resume (a paused task is already mid-plan or mid-routine-replay).
   const isResume = !!(task.result_payload && task.result_payload.paused_state);
+  if (!isResume) {
+    const routine = await matchRoutineTrigger(agent.id, task.instruction);
+    if (routine) {
+      const handled = await replayRoutine({ routine, agent, task });
+      if (handled) return; // routine handled the task fully (or paused for approval) — stop here
+    }
+  }
+
+  // ── Step 1: cheap intent check — skip the whole pipeline for small talk ──
   if (!isResume) {
     const intent = await classifyIntent({ instruction: task.instruction, userId: task.user_id, agentId: agent.id, taskId });
     if (intent === "SIMPLE") {
