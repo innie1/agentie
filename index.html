@@ -1326,41 +1326,82 @@
       /* Minimal, isolated login overlay */
       #agentie-auth-overlay {
         position: fixed; inset: 0; z-index: 99999;
-        background: #0a0d10;
+        background: radial-gradient(circle at 50% 30%, #111720 0%, #080a0d 100%);
         display: flex; align-items: center; justify-content: center;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        backdrop-filter: blur(8px);
       }
       #agentie-auth-overlay.hidden { display: none; }
       #agentie-auth-box {
-        background: #12161b; border: 1px solid #232a31; border-radius: 14px;
-        padding: 32px; width: 320px; color: #e8edf1;
+        background: #12161c; border: 1px solid #242c35; border-radius: 18px;
+        padding: 32px; width: 340px; color: #e8edf1;
+        box-shadow: 0 20px 40px -15px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.03);
       }
-      #agentie-auth-box h2 { margin: 0 0 4px; font-size: 20px; }
-      #agentie-auth-box p { margin: 0 0 20px; color: #8a94a0; font-size: 13px; }
+      #agentie-auth-box h2 { margin: 0 0 6px; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+      #agentie-auth-box p { margin: 0 0 20px; color: #8a94a0; font-size: 12.5px; line-height: 1.45; }
       #agentie-auth-box input {
-        width: 100%; padding: 10px 12px; margin-bottom: 10px;
-        background: #161b21; border: 1px solid #232a31; border-radius: 8px;
-        color: #e8edf1; font-size: 14px; box-sizing: border-box;
+        width: 100%; padding: 11px 13px; margin-bottom: 11px;
+        background: #161b22; border: 1px solid #232b34; border-radius: 9px;
+        color: #e8edf1; font-size: 13.5px; box-sizing: border-box;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      }
+      #agentie-auth-box input:focus {
+        outline: none; border-color: #10A8FF;
+        box-shadow: 0 0 0 3px rgba(16, 168, 255, 0.15);
       }
       #agentie-auth-box button {
-        width: 100%; padding: 10px; margin-top: 6px;
-        background: #4fd8e8; color: #06161a; border: none; border-radius: 8px;
-        font-weight: 600; font-size: 14px; cursor: pointer;
+        width: 100%; padding: 11px; margin-top: 4px;
+        background: #10A8FF; color: #ffffff; border: none; border-radius: 9px;
+        font-weight: 600; font-size: 13.5px; cursor: pointer;
+        transition: background 0.15s ease, transform 0.1s ease;
       }
+      #agentie-auth-box button:hover { background: #0E96E6; }
+      #agentie-auth-box button:active { transform: scale(0.99); }
       #agentie-auth-box button.secondary {
-        background: transparent; color: #8a94a0; border: 1px solid #232a31; margin-top: 8px;
+        background: transparent; color: #cbd5e1; border: 1px solid #26303b; margin-top: 8px; font-weight: 500;
       }
-      #agentie-auth-error { color: #e85f5f; font-size: 12.5px; margin-top: 8px; min-height: 16px; }
+      #agentie-auth-box button.secondary:hover { background: #192028; border-color: #333f4d; color: #ffffff; }
+      #agentie-auth-box button.guest-btn {
+        background: #182029; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.25); margin-top: 10px;
+        display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px;
+      }
+      #agentie-auth-box button.guest-btn:hover {
+        background: #1e2834; border-color: rgba(56, 189, 248, 0.45); color: #7dd3fc;
+      }
+      .agentie-auth-divider {
+        display: flex; align-items: center; margin: 16px 0 10px; color: #52606d; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+      }
+      .agentie-auth-divider::before, .agentie-auth-divider::after {
+        content: ''; flex: 1; height: 1px; background: #202730;
+      }
+      .agentie-auth-divider span { padding: 0 10px; }
+      #agentie-auth-error { font-size: 12px; margin-top: 10px; min-height: 18px; line-height: 1.4; }
+      .auth-err { color: #f87171; }
+      .auth-succ { color: #4ade80; }
     </style>
 
     <div id="agentie-auth-overlay" class="hidden">
       <div id="agentie-auth-box">
+        <div class="flex items-center gap-2 mb-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-[#10A8FF] animate-pulse"></span>
+            <span class="text-[11px] uppercase tracking-wider text-[#10A8FF] font-semibold">Agentie Workspace</span>
+        </div>
         <h2>Sign in to Agentie</h2>
-        <p>Your agents, plugins, and tasks are tied to your account.</p>
-        <input id="agentie-auth-email" type="email" placeholder="Email" autocomplete="email" />
-        <input id="agentie-auth-password" type="password" placeholder="Password" autocomplete="current-password" />
+        <p>Your agents, plugins, routines, and task queues are tied to your session.</p>
+        <input id="agentie-auth-email" type="email" placeholder="Email address" autocomplete="email" />
+        <input id="agentie-auth-password" type="password" placeholder="Password (min 6 chars)" autocomplete="current-password" />
         <button id="agentie-auth-signin-btn">Sign In</button>
         <button id="agentie-auth-signup-btn" class="secondary">Create Account</button>
+        
+        <div class="agentie-auth-divider">
+            <span>or</span>
+        </div>
+
+        <button id="agentie-auth-guest-btn" class="guest-btn">
+            <span class="material-symbols-outlined text-[16px]">bolt</span>
+            <span>Continue as Guest</span>
+        </button>
+
         <div id="agentie-auth-error"></div>
       </div>
     </div>
@@ -1370,7 +1411,9 @@
       const SUPABASE_URL = "https://cugaysbdpfzunwwlbfsn.supabase.co";
       const SUPABASE_ANON_KEY = "PASTE_YOUR_SUPABASE_ANON_KEY_HERE"; // Settings → API → anon public
 
-      const _sb = (window.supabase && typeof window.supabase.createClient === 'function')
+      const isKeyConfigured = SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.startsWith("PASTE_YOUR");
+
+      const _sb = (window.supabase && typeof window.supabase.createClient === 'function' && isKeyConfigured)
         ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
         : null;
 
@@ -1379,21 +1422,36 @@
         _session: null,
 
         async init() {
-          if (!_sb) return null;
+          this._wireForm();
+
+          // Check if user previously chosen Guest Mode
+          if (localStorage.getItem("agentie_guest_mode") === "true") {
+            this._session = { access_token: "guest_session_token", user: { id: "guest_user", email: "guest@agentie.ai" } };
+            this._toggleOverlay(false);
+            return this._session;
+          }
+
+          if (!_sb) {
+            // If Supabase key not provided yet, show overlay with active guest option
+            this._toggleOverlay(true);
+            return null;
+          }
+
           try {
             const { data } = await _sb.auth.getSession();
             this._session = data?.session || null;
 
             _sb.auth.onAuthStateChange((_event, session) => {
               this._session = session;
-              this._toggleOverlay(!session);
+              if (session) localStorage.removeItem("agentie_guest_mode");
+              this._toggleOverlay(!session && localStorage.getItem("agentie_guest_mode") !== "true");
             });
 
             this._toggleOverlay(!this._session);
-            this._wireForm();
             return this._session;
           } catch (err) {
             console.warn('[AgentieAuth] Session check warning:', err.message);
+            this._toggleOverlay(true);
             return null;
           }
         },
@@ -1402,8 +1460,23 @@
           return this._session?.access_token || null;
         },
 
+        getUser() {
+          return this._session?.user || null;
+        },
+
+        enterGuestMode() {
+          localStorage.setItem("agentie_guest_mode", "true");
+          this._session = { access_token: "guest_session_token", user: { id: "guest_user", email: "guest@agentie.ai" } };
+          this._toggleOverlay(false);
+        },
+
         async signOut() {
-          if (_sb) await _sb.auth.signOut();
+          localStorage.removeItem("agentie_guest_mode");
+          this._session = null;
+          if (_sb) {
+            try { await _sb.auth.signOut(); } catch (e) {}
+          }
+          this._toggleOverlay(true);
         },
 
         _toggleOverlay(show) {
@@ -1416,26 +1489,98 @@
           const passEl = document.getElementById("agentie-auth-password");
           const errEl = document.getElementById("agentie-auth-error");
 
-          const showError = (msg) => { if (errEl) errEl.textContent = msg; };
+          const showMsg = (msg, isSuccess = false) => {
+            if (!errEl) return;
+            errEl.textContent = msg;
+            errEl.className = isSuccess ? 'auth-succ' : 'auth-err';
+          };
+
+          const guestBtn = document.getElementById("agentie-auth-guest-btn");
+          if (guestBtn) {
+            guestBtn.onclick = () => {
+              this.enterGuestMode();
+            };
+          }
 
           const signinBtn = document.getElementById("agentie-auth-signin-btn");
           if (signinBtn) {
             signinBtn.onclick = async () => {
-              showError("");
-              if (!_sb) return showError("Supabase client not initialized. Please set SUPABASE_ANON_KEY.");
-              const { error } = await _sb.auth.signInWithPassword({ email: emailEl.value, password: passEl.value });
-              if (error) showError(error.message);
+              showMsg("");
+              const email = emailEl.value.trim();
+              const password = passEl.value;
+
+              if (!email || !password) {
+                return showMsg("Please enter both email and password.");
+              }
+
+              if (!_sb) {
+                // If anon key is still a placeholder, provide direct entry
+                showMsg("Supabase anon key is not set. Signing in as Guest...", true);
+                setTimeout(() => this.enterGuestMode(), 600);
+                return;
+              }
+
+              signinBtn.disabled = true;
+              signinBtn.textContent = "Signing In...";
+
+              try {
+                const { data, error } = await _sb.auth.signInWithPassword({ email, password });
+                if (error) {
+                  showMsg(error.message);
+                } else if (data?.session) {
+                  this._session = data.session;
+                  localStorage.removeItem("agentie_guest_mode");
+                  this._toggleOverlay(false);
+                }
+              } catch (err) {
+                showMsg(err.message || "Failed to sign in. Click Continue as Guest.");
+              } finally {
+                signinBtn.disabled = false;
+                signinBtn.textContent = "Sign In";
+              }
             };
           }
 
           const signupBtn = document.getElementById("agentie-auth-signup-btn");
           if (signupBtn) {
             signupBtn.onclick = async () => {
-              showError("");
-              if (!_sb) return showError("Supabase client not initialized. Please set SUPABASE_ANON_KEY.");
-              const { error } = await _sb.auth.signUp({ email: emailEl.value, password: passEl.value });
-              if (error) showError(error.message);
-              else showError("Check your email to confirm your account, then sign in.");
+              showMsg("");
+              const email = emailEl.value.trim();
+              const password = passEl.value;
+
+              if (!email || !password) {
+                return showMsg("Please enter an email and password.");
+              }
+              if (password.length < 6) {
+                return showMsg("Password must be at least 6 characters.");
+              }
+
+              if (!_sb) {
+                showMsg("Supabase anon key not set in index.html. Continuing in Guest Mode...", true);
+                setTimeout(() => this.enterGuestMode(), 800);
+                return;
+              }
+
+              signupBtn.disabled = true;
+              signupBtn.textContent = "Creating Account...";
+
+              try {
+                const { data, error } = await _sb.auth.signUp({ email, password });
+                if (error) {
+                  showMsg(error.message);
+                } else if (data?.session) {
+                  this._session = data.session;
+                  localStorage.removeItem("agentie_guest_mode");
+                  this._toggleOverlay(false);
+                } else {
+                  showMsg("Account created! Check your email to confirm, or click Continue as Guest.", true);
+                }
+              } catch (err) {
+                showMsg(err.message || "Account creation failed. Click Continue as Guest.");
+              } finally {
+                signupBtn.disabled = false;
+                signupBtn.textContent = "Create Account";
+              }
             };
           }
         },
@@ -4956,12 +5101,13 @@
             if (dom.profilePopoverMenu) {
                 const menuLogout = document.getElementById('menu-logout');
                 if (menuLogout) {
-                    menuLogout.addEventListener('click', () => {
+                    menuLogout.addEventListener('click', async () => {
                         closeProfileMenu();
                         state.agents = [];
                         state.activeAgentId = null;
                         renderSidebar();
                         renderMainWorkspace(null);
+                        if (window.AgentieAuth) await window.AgentieAuth.signOut();
                     });
                 }
                 const menuGetIos = document.getElementById('menu-get-ios');
@@ -5092,11 +5238,12 @@
 
             // Sign Out
             if (dom.signOutBtn) {
-                dom.signOutBtn.addEventListener('click', () => {
+                dom.signOutBtn.addEventListener('click', async () => {
                     closeAppSettings();
                     state.agents = [];
                     renderSidebar();
                     renderMainWorkspace(null);
+                    if (window.AgentieAuth) await window.AgentieAuth.signOut();
                 });
             }
 
