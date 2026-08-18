@@ -1,6 +1,7 @@
 import express from "express";
 import axios from "axios";
 import { supabaseAdmin } from "../supabaseClient.js";
+import { fastChat, isFastChatMessage } from "../lib/fastChat.js";
 
 const router = express.Router();
 
@@ -26,8 +27,54 @@ router.post("/", async (req, res) => {
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
-  // Notify the worker directly (in addition to/instead of a Supabase DB webhook —
-  // see README for wiring a DB webhook as the more resilient alternative)
+  // Simple conversation should not wait for Redis/BullMQ. Keep real tasks asynchronous.
+  if (isFastChatMessage(instruction)) {
+    try {
+      const { data: agent, error: agentError } = await supabaseAdmin
+        .from("agents")
+        .select("id, name, system_prompt, role, goal")
+        .eq("id", agent_id)
+        .eq("user_id", userId)
+        .single();
+
+      if (agentError || !agent) throw new Error(agentError?.message || "Agent not found");
+
+      const { text, model } = await fastChat({ agent, message: instruction });
+      const { data: completed, error: completeError } = await supabaseAdmin
+        .from("tasks")
+        .update({
+          status: "done",
+          result: text,
+          result_type: "fact",
+          result_payload: { mode: "chat", model },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", task.id)
+        .eq("user_id", userId)
+        .select()
+        .single();
+
+      if (completeError) throw new Error(completeError.message);
+      return res.status(201).json({ task: completed, fast: true });
+    } catch (err) {
+      console.error("[tasks] fast chat failed:", err.message);
+      const { data: failedTask } = await supabaseAdmin
+        .from("tasks")
+        .update({
+          status: "failed",
+          result_type: "failure",
+          result_payload: { error: err.message },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", task.id)
+        .eq("user_id", userId)
+        .select()
+        .single();
+      return res.status(502).json({ error: "Fast chat failed", detail: err.message, task: failedTask || task });
+    }
+  }
+
+  // Real tasks stay asynchronous and go through Redis/BullMQ.
   try {
     const workerUrl = process.env.WORKER_URL || 'https://agentie-production.up.railway.app';
     await axios.post(`${workerUrl}/enqueue`, { taskId: task.id });
