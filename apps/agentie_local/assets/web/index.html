@@ -2374,6 +2374,7 @@
             const agent = state.agents.find(a => a.id === agentId);
             
             if (agent) {
+                dom.chatInput.disabled = false;
                 dom.topAgentTitle.textContent = agent.name;
                 dom.topAgentAvatarWrap.innerHTML = getOrbAvatarHtml(agent.orbColor, 'xs', false, agent.avatarShape || agent.orbColor);
                 dom.chatInput.placeholder = `Message ${agent.name}`;
@@ -2393,10 +2394,13 @@
                 renderMainWorkspace(agent);
                 hydrateAgentRuntime(agent);
             } else {
-                dom.topAgentTitle.textContent = 'New Agentie';
-                dom.topAgentAvatarWrap.innerHTML = getOrbAvatarHtml(1, 'xs', false);
-                dom.chatInput.placeholder = 'Message New Agentie';
-                dom.screenCaptionText.textContent = "New Agentie's screen";
+                state.activeAgentId = null;
+                dom.chatInput.value = '';
+                dom.chatInput.disabled = true;
+                dom.topAgentTitle.textContent = 'No agent selected';
+                dom.topAgentAvatarWrap.innerHTML = '';
+                dom.chatInput.placeholder = 'Create an agent to start';
+                dom.screenCaptionText.textContent = 'No agent selected';
                 if (dom.topAgentTag) {
                     dom.topAgentTag.classList.add('hidden');
                 }
@@ -3803,14 +3807,28 @@
             const wrapper = document.createElement('div');
             wrapper.className = 'w-full max-w-3xl flex flex-col space-y-3 pt-1 pb-4 transition-all duration-300';
 
+            // An empty account is truly empty. Creating an agent must always be
+            // an explicit user action through the + button; this is not a hidden
+            // default agent and cannot accept messages or create backend data.
+            if (!agent) {
+                wrapper.className = 'w-full max-w-md flex flex-col items-center justify-center gap-2 py-16 text-center';
+                wrapper.innerHTML = `
+                    <span class="material-symbols-outlined text-[24px] text-text-muted/70">person_add</span>
+                    <p class="text-[13px] font-medium text-text-primary">No agent selected</p>
+                    <p class="text-[11.5px] text-text-muted/70">Click + in the Agents panel to create your first agent.</p>
+                `;
+                dom.chatStreamContainer.appendChild(wrapper);
+                return;
+            }
+
             // Centered Timestamp Header
-            const displayTimestamp = agent && agent.createdAt ? agent.createdAt : formatCreationDate(new Date());
+            const displayTimestamp = agent.createdAt || formatCreationDate(new Date());
             const timeHeader = document.createElement('div');
             timeHeader.className = 'text-center w-full text-[11px] text-text-muted/60 py-2 select-none font-medium tracking-wide';
             timeHeader.textContent = displayTimestamp;
             wrapper.appendChild(timeHeader);
 
-            const heroOrbColor = agent ? agent.orbColor : 1;
+            const heroOrbColor = agent.orbColor;
 
             // Agent Left-Aligned Speech Row
             const welcomeRow = document.createElement('div');
@@ -3831,7 +3849,7 @@
             wrapper.appendChild(welcomeRow);
 
             // Choice Card
-            const showChoiceCard = !agent || !agent.choiceAnswered;
+            const showChoiceCard = !agent.choiceAnswered;
 
             if (showChoiceCard) {
                 const choiceCardRow = document.createElement('div');
@@ -4531,10 +4549,6 @@
 
         function handleUserSelection(text) {
             if (!text) return;
-            if (!state.activeAgentId) {
-                createNewAgent();
-            }
-
             const currentAgent = state.agents.find(a => a.id === state.activeAgentId);
             if (!currentAgent) return;
 
@@ -5000,6 +5014,10 @@
         }
 
         function createNewAgent(specifiedRole = '', specifiedGoal = '') {
+            // Event listeners pass a PointerEvent as their first argument unless
+            // wrapped. Never let that browser event become the agent's role.
+            if (typeof specifiedRole !== 'string') specifiedRole = '';
+            if (typeof specifiedGoal !== 'string') specifiedGoal = '';
             const id = 'agent_' + Date.now();
             const now = new Date();
             const count = state.agents.length + 1;
@@ -5041,13 +5059,7 @@
         // =========================================================================
         function openAgentSettingsModal() {
             const agent = state.agents.find(a => a.id === state.activeAgentId);
-            if (!agent) {
-                if (state.agents.length === 0) {
-                    createNewAgent();
-                } else {
-                    selectAgent(state.agents[0].id);
-                }
-            }
+            if (!agent) return;
 
             const currentAgent = state.agents.find(a => a.id === state.activeAgentId) || state.agents[0];
             if (!currentAgent) return;
@@ -5844,10 +5856,6 @@
             const file = state.attachedFile;
             const localAttachment = state.attachedFileData;
             if (!rawText && !file) return;
-
-            if (!state.activeAgentId) {
-                createNewAgent();
-            }
 
             const currentAgent = state.agents.find(a => a.id === state.activeAgentId);
             if (!currentAgent) return;
@@ -6962,14 +6970,7 @@
         // =========================================================================
         function openDrawerSettings() {
             let agent = state.agents.find(a => a.id === state.activeAgentId);
-            if (!agent) {
-                if (state.agents.length === 0) {
-                    agent = createNewAgent();
-                } else {
-                    agent = state.agents[0];
-                    selectAgent(agent.id);
-                }
-            }
+            if (!agent) return;
 
             const currentAgent = agent || { name: 'New Bot', role: '', goal: '', orbColor: 1, notificationsEnabled: false };
 
@@ -7759,7 +7760,7 @@
                 }
             });
 
-            dom.addAgentBtnTop.addEventListener('click', createNewAgent);
+            dom.addAgentBtnTop.addEventListener('click', () => createNewAgent());
             dom.chatPlusBtn.addEventListener('click', () => {
                 dom.fileUploadInput.click();
             });
@@ -7880,48 +7881,10 @@
                 });
             }
 
-            // Delete Modal Handlers
-            const openDeleteModal = (agentId) => {
-                state.agentPendingDeleteId = agentId;
-                const agent = state.agents.find(a => a.id === agentId);
-                if (dom.deleteModalTitle && agent) dom.deleteModalTitle.textContent = `Delete ${agent.name}?`;
-                if (dom.deleteModal) dom.deleteModal.classList.remove('hidden');
-                if (dom.modalBackdrop) {
-                    dom.modalBackdrop.classList.remove('hidden');
-                    setTimeout(() => dom.modalBackdrop.classList.add('opacity-100'), 10);
-                }
-            };
-            const closeDeleteModal = () => {
-                state.agentPendingDeleteId = null;
-                if (dom.deleteModal) dom.deleteModal.classList.add('hidden');
-                if (dom.modalBackdrop) {
-                    dom.modalBackdrop.classList.remove('opacity-100');
-                    setTimeout(() => dom.modalBackdrop.classList.add('hidden'), 200);
-                }
-            };
-            const confirmDeleteAgent = () => {
-                if (state.agentPendingDeleteId) {
-                    state.agents = state.agents.filter(a => a.id !== state.agentPendingDeleteId);
-                    if (state.activeAgentId === state.agentPendingDeleteId) {
-                        state.activeAgentId = state.agents.length > 0 ? state.agents[0].id : null;
-                    }
-                    closeDeleteModal();
-                    renderSidebar();
-                    const nextAgent = state.agents.find(a => a.id === state.activeAgentId);
-                    renderMainWorkspace(nextAgent || null);
-                }
-            };
-
+            // Bind the single permanent deletion flow defined above. It removes
+            // hosted agents through the API and local agents from installed state.
             if (dom.cancelDeleteBtn) dom.cancelDeleteBtn.addEventListener('click', closeDeleteModal);
             if (dom.confirmDeleteBtn) dom.confirmDeleteBtn.addEventListener('click', confirmDeleteAgent);
-            if (dom.settingsDeleteAgentBtn) {
-                dom.settingsDeleteAgentBtn.addEventListener('click', () => {
-                    closeAgentSettingsModal();
-                    if (state.activeAgentId) {
-                        openDeleteModal(state.activeAgentId);
-                    }
-                });
-            }
 
             // =========================================================================
             // CLICK-OUTSIDE / SIDES / BACKDROP TO CLOSE MODAL PAGES
