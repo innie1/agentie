@@ -24,13 +24,13 @@ import memoryRouter from './routes/memory.js';
 import { cronScheduler } from './services/cronScheduler.js';
 import { refreshModelsCatalog } from './services/modelCatalogService.js';
 import { rateLimit } from './lib/rateLimit.js';
+import { configuredCorsOrigins, isAllowedCorsOrigin } from './lib/corsPolicy.js';
 
 const app = express();
 const PORT = process.env.PORT || process.env.SERVER_PORT || 4000;
-const configuredOrigins = [...new Set([process.env.APP_URL, ...String(process.env.CORS_ORIGINS || '').split(',')].map((value) => String(value || '').trim().replace(/\/$/, '')).filter(Boolean))];
-const localOrigin = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/;
+const configuredOrigins = configuredCorsOrigins();
 app.use(cors({ origin(origin, callback) {
-  if (!origin || configuredOrigins.includes(origin.replace(/\/$/, '')) || (process.env.NODE_ENV !== 'production' && localOrigin.test(origin))) return callback(null, true);
+  if (isAllowedCorsOrigin(origin, configuredOrigins)) return callback(null, true);
   callback(new Error('Origin is not allowed by CORS'));
 }, credentials: true }));
 app.use(express.json({ limit: '10mb' }));

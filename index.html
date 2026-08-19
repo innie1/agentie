@@ -1964,6 +1964,11 @@
         // IndexedDB. It works without Supabase and survives app restarts.
         const AGENTIE_LOCAL_STORE = 'agentie-installed-state';
 
+        function agentieStateStoreKey() {
+            const userId = window.AgentieAuth?.getUser?.()?.id || 'guest';
+            return `${AGENTIE_LOCAL_STORE}:${userId}`;
+        }
+
         function openAgentieLocalDatabase() {
             return new Promise((resolve, reject) => {
                 const request = indexedDB.open('agentie-local', 1);
@@ -1979,14 +1984,22 @@
         }
 
         async function restoreAgentieLocalState() {
-            if (!window.AgentieLocal || !window.AgentieLocal.isAvailable()) return;
             try {
                 const database = await openAgentieLocalDatabase();
-                const snapshot = await new Promise((resolve, reject) => {
-                    const request = database.transaction('state', 'readonly').objectStore('state').get(AGENTIE_LOCAL_STORE);
+                let snapshot = await new Promise((resolve, reject) => {
+                    const request = database.transaction('state', 'readonly').objectStore('state').get(agentieStateStoreKey());
                     request.onsuccess = () => resolve(request.result || null);
                     request.onerror = () => reject(request.error);
                 });
+                // Preserve local agents created by installed builds released
+                // before state became user-scoped.
+                if (!snapshot && isInstalledLocalRuntime()) {
+                    snapshot = await new Promise((resolve, reject) => {
+                        const request = database.transaction('state', 'readonly').objectStore('state').get(AGENTIE_LOCAL_STORE);
+                        request.onsuccess = () => resolve(request.result || null);
+                        request.onerror = () => reject(request.error);
+                    });
+                }
                 database.close();
                 if (!snapshot) return;
                 if (Array.isArray(snapshot.agents)) state.agents = snapshot.agents;
@@ -2004,7 +2017,6 @@
         }
 
         async function persistAgentieLocalState() {
-            if (!window.AgentieLocal || !window.AgentieLocal.isAvailable()) return;
             try {
                 const database = await openAgentieLocalDatabase();
                 const snapshot = {
@@ -2019,7 +2031,7 @@
                     savedAt: new Date().toISOString()
                 };
                 await new Promise((resolve, reject) => {
-                    const request = database.transaction('state', 'readwrite').objectStore('state').put(snapshot, AGENTIE_LOCAL_STORE);
+                    const request = database.transaction('state', 'readwrite').objectStore('state').put(snapshot, agentieStateStoreKey());
                     request.onsuccess = () => resolve();
                     request.onerror = () => reject(request.error);
                 });
@@ -2029,10 +2041,10 @@
             }
         }
 
-        if (window.AgentieLocal && window.AgentieLocal.isAvailable()) {
-            setInterval(persistAgentieLocalState, 1200);
-            window.addEventListener('pagehide', persistAgentieLocalState);
-        }
+        // Guest agents are local-first too. Signed-in state is scoped by user ID,
+        // so one account can never restore another account's local snapshot.
+        setInterval(persistAgentieLocalState, 1200);
+        window.addEventListener('pagehide', persistAgentieLocalState);
 
         const dom = {
             sidebar: document.getElementById('sidebar'),
@@ -6995,6 +7007,13 @@
         // =========================================================================
         async function persistAgentToBackend(agent) {
             if (!agent || isInstalledLocalRuntime()) return agent;
+            const currentUser = window.AgentieAuth?.getUser?.();
+            const token = window.AgentieAuth?.getToken?.();
+            const isLocalGuest = !currentUser?.id || currentUser.id === '00000000-0000-0000-0000-000000000000' || token === 'guest_session_token';
+            if (isLocalGuest) {
+                await persistAgentieLocalState();
+                return agent;
+            }
             const hasBackendId = agent.backend_id && /^[0-9a-fA-F-]{36}$/.test(agent.backend_id);
             const payload = {
                 role: agent.role || 'General Assistant',
@@ -7187,11 +7206,12 @@
         }
 
         async function init() {
-            await restoreAgentieLocalState();
             // FIX 1: Initialize Auth Session & Overlay before anything else runs
             if (window.AgentieAuth) {
                 await window.AgentieAuth.init();
             }
+            // Restore only the current signed-in account or local guest profile.
+            await restoreAgentieLocalState();
             const installedLocally = isInstalledLocalRuntime();
             if (!installedLocally) await loadControlPlaneAgents();
 
